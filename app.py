@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import irc as IRC
+import scripts.irc as IRC
 
 if __name__ == "__main__": 
     irc_obj = IRC.IRC_Object()

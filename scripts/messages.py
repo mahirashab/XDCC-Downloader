@@ -138,7 +138,7 @@ class HandleMessage:
 
 
     def PONG_message(self, server):
-        msg = "PONG {}\r\n".format(server).encode("utf-8")
+        msg = "PONG :{}\r\n".format(server).encode("utf-8")
         self.client.connection.send(msg)
         print(msg.decode("utf-8"))
 
