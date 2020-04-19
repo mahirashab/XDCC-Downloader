@@ -10,44 +10,53 @@ class HandleReplies:
                             "(?P<command>[^ ]+)( *(?P<argument> .+))?")
         
     def process_replies(self, response):
-
         m = self.regexp.match(response)
         tags = self.get_tags(m)
         prefix = self.get_prefix(m)
         command = self.get_command(m)
         argument = self.get_argument(m)
 
-        print(command)
+        # print("at first  ", command)
+        # print("---------")
         command = events.numeric.get(command, command)
-        print(command)
+        print("Command    ", command)
+        # print("---------")
+        print("main response    ", response, "\r\n")
+        # print("---------")
+        # print("---------")
+        # print("---------")
+
 
         last_message = self.client.message_queue[0]
 
-        # print(response)
-        if command == "welcome":
+        if False:
+            pass
+
+        elif command == "welcome":
             self.client.real_server = prefix
             self.client.user_registered = True
             print("Welcome.", command,  response)
 
-        # elif command == "yourhost":
-        #     print("yourhost")
+        # # elif command == "yourhost":
+        # #     print("yourhost")
 
-        # elif command == "created":
-        #     print("displaying created.")
-        #     print(response)
+        # # elif command == "created":
+        # #     print("displaying created.")
+        # #     print(response)
 
         elif command == "nicknameinuse":
+            pass
             print("nickname in use")
 
         elif command == "notice":
             self.handle_NOTICE_reply(response, last_message)
 
-        elif command == "ping":
-            self.handle_PING_reply(response, last_message)
+        # elif command == "ping":
+        #     self.handle_PING_reply(response, last_message)
 
-        else:
-            # print(response)
-            pass
+        # else:
+        #     # print(response)
+        #     pass
 
 
     def handle_NOTICE_reply(self, response, last_message):

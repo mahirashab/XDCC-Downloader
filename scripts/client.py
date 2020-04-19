@@ -19,6 +19,7 @@ class IRC_Client:
         self.joined_channel = False
 
         self.message_queue = []
+        self.replies_buffer = ""
 
         self.message_handler = messages.HandleMessage(self)
         self.replies_handler = replies.HandleReplies(self)
@@ -49,7 +50,13 @@ class IRC_Client:
         if readable:
             res_data = self.response()
             if res_data:
-                self.replies_handler.process_replies(res_data)
+                splitted_message = res_data.split("\r\n")
+                splitted_message[0] = self.replies_buffer + splitted_message[0]
+                self.replies_buffer = splitted_message[-1]
+
+                for reply in splitted_message[:-1]:
+                    if reply:
+                        self.replies_handler.process_replies(reply)
         elif error:
             pass
 
