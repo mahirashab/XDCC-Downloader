@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import select
+import time
 import scripts.client as client
 
 class IRC_Object:
@@ -12,7 +14,22 @@ class IRC_Object:
         cnt.connect()
         self.connections.append(cnt)
 
-    def process_all_connections(self):
+    def process_all_connections(self, timeout=1):
         while True:
-            for connection in self.connections:
-                connection.run_once()
+
+            sockets = map(lambda c: c.get_socket(), self.connections)
+            sockets = list(filter(lambda s: s != None, sockets))
+
+            if sockets:
+                start = time.perf_counter()
+                writable, readable, error = select.select(sockets, [], sockets, timeout)
+                stop = time.perf_counter()
+
+                print(f"Took {round(stop - start, 3)} seconds...")
+
+                for s in writable:
+                    for c in self.connections:
+                        if s == c.get_socket():
+                            c.run_once()
+            else:
+                time.sleep(1)

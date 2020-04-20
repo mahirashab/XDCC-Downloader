@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 import socket
-import select
 import re
 import scripts.events as events
 
@@ -42,21 +41,17 @@ class IRC_Client:
         self.register_user()
 
     
-    def run_once(self, timeout=1):
-        readable, writeable, error = select.select([self.connection], [], [self.connection], timeout)
+    def run_once(self):
+        res_data = self.response()
+        if res_data:
+            splitted_message = res_data.split("\r\n")
+            splitted_message[0] = self.replies_buffer + splitted_message[0]
+            self.replies_buffer = splitted_message[-1]
 
-        if readable:
-            res_data = self.response()
-            if res_data:
-                splitted_message = res_data.split("\r\n")
-                splitted_message[0] = self.replies_buffer + splitted_message[0]
-                self.replies_buffer = splitted_message[-1]
-
-                for reply in splitted_message[:-1]:
-                    if reply:
-                        self.process_replies(reply)
-        elif error:
-            pass
+            for reply in splitted_message[:-1]:
+                if reply:
+                    self.process_replies(reply)
+        
 
 
 
@@ -70,7 +65,7 @@ class IRC_Client:
 
         command = events.numeric.get(command, command).lower()
         print("Command    ", command)
-        # print("main response    ", response, "\r\n")
+        print("main response    ", response, "\r\n")
 
         if command == "privmsg":
             print("main response    ", response, "\r\n")
@@ -79,7 +74,7 @@ class IRC_Client:
         if command == "welcome":
             self.real_server = prefix
             self.user_registered = True
-            # self.JOIN_message(self.channels)
+            self.JOIN_message(self.channels)
 
         elif command == "nicknameinuse":
             if self.connected:
@@ -91,8 +86,10 @@ class IRC_Client:
                 self.register_user()
 
         elif command == "error":
-            print(tags, prefix, argument)
-
+            if "closing link" in argument.lower():
+                self.connected = False
+                self.connection.close()
+                print("closed connection...")
 
     def register_user(self):
         self.NICK_message(self.nick_name)
@@ -101,6 +98,12 @@ class IRC_Client:
 
     def response(self):
         return self.connection.recv(512).decode("utf-8")
+
+    def get_socket(self):
+        if self.connected:
+            return self.connection
+        else: 
+            return None
 
     def reconnect(self):
         try:
