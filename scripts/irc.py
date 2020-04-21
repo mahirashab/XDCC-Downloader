@@ -11,8 +11,8 @@ class IRC_Object:
         
     def create_connection(self):
         cnt = client.IRC_Client()
-        cnt.connect()
         self.connections.append(cnt)
+        return cnt
 
     def process_all_connections(self, timeout=1):
         while True:

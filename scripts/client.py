@@ -16,14 +16,14 @@ class IRC_Client:
                             "(?P<command>[^ ]+)( *(?P<argument> .+))?")
         
 
-    def connect(self, server="irc.abjects.net", port=6667, nick_name="scker", user="mahir", realname="mahir ashab"):
+    def connect(self, server, port, channels, nick_name, user, realname):
         self.server = server
         self.real_server = None
         self.port = port
         self.nick_name = nick_name
         self.user = user
         self.real_name = realname
-        self.channels = ["#beast-xdcc", "#moviegods"]
+        self.channels = channels
 
         self.connected = False
 
@@ -64,8 +64,8 @@ class IRC_Client:
         argument = m.group('argument')
 
         command = events.numeric.get(command, command).lower()
-        print("Command    ", command)
-        print("main response    ", response, "\r\n")
+        print("Command    ", prefix)
+        # print("main response    ", response, "\r\n")
 
         if command == "privmsg":
             print("main response    ", response, "\r\n")
