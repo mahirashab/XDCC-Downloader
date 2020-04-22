@@ -1,49 +1,55 @@
 #!/usr/bin/python3
-import configparser
+
 import scripts.irc as IRC
+
+try:
+    import config
+except ImportError as err:
+    raise Exception("No config file....")
+
+def get_user_info(info):
+    keys = list(info.keys())
+
+    if "Nick_Name" and "User_Name" and "Real_Name" in keys:
+        result = []
+        result.append(info.get("Nick_Name"))
+        result.append(info.get("User_Name"))
+        result.append(info.get("Real_Name"))
+        result.append(info.get("Password"))
+        result.append(info.get("SSL"))
+
+        if result[0] and result[1] and result[2]:
+            return result
+        else:
+            raise ValueError("Empty value is user info")
+            
+    else:
+        raise Exception("Invalid user info...")
+
+
+def get_server_list(s_list):
+    result = []
+    for s in s_list:
+        keys = list(s.keys())
+        if "Address" and "Port" and "Channels" in keys:
+            if type(s.get("Port")) == int and type(s.get("Channels")) == list and len(s.get("Channels")):
+                result.append(s)
+    return result
+
 
 if __name__ == "__main__": 
 
-    parser = configparser.ConfigParser()
     irc_obj = IRC.IRC_Object()
 
-    try:
-        with open('conf.ini') as f:
-            parser.read_file(f)
-    except IOError:
-        raise Exception("There is no config file..")
+    nick, user, real, pswd, ssl = get_user_info(config.User_Info)
 
-    nick = parser.get("User_Info", "Nick_Name", fallback="sucker")
-    user = parser.get("User_Info", "User_Name", fallback="mahir")
-    real = parser.get("User_Info", "Real_Name", fallback="Mahir Ashab")
-    
-    if not (nick and user and real):
-        raise Exception("Invalid User Credentials...")
+    servers = get_server_list(config.Servers)
 
-    if not parser.sections()[1:]:
-        raise Exception("NO SERVERS GIVEN...")
-
-
-    for server_section in parser.sections()[1:]:
-        s_name = parser.get(server_section, "Address")
-        s_port = parser.get(server_section, "Port")
-        s_channels = parser.get(server_section, "Chnnels").split(",")
-
-        s_channels = list(filter(lambda x: x != '', s_channels))
-
-        if not s_port.isdigit or s_port == '': 
-            print("Invalid Port. Server not created.")
-            continue
-        else:
-            s_port = int(s_port)
-
-
-        if s_name and s_port and s_channels:
+    if servers:
+        for server in servers:
             client = irc_obj.create_connection()
-            client.connect(s_name, s_port, s_channels, nick, user, real)
-        else:
-            print("Invalis server args. Server not created.")
-            
+            client.connect(server["Address"], server["Port"], server["Channels"], nick, user, real)
+     
 
     irc_obj.process_all_connections()
     
