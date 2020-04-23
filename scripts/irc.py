@@ -2,12 +2,43 @@
 
 import select
 import time
+import logging
+import logging.config
+import sys
+import os
 import scripts.client as client
 
 class IRC_Object:
 
     def __init__(self):
         self.connections = []
+        self.setup_logger()
+
+    
+    def setup_logger(self):
+        parent_dir = os.getcwd()
+        log_folder = os.path.join(parent_dir, "logs/")
+        log_config_file = os.path.join(parent_dir, "logger.ini")
+
+        if not os.path.exists(log_config_file):
+            print("No log formatter file")
+            sys.exit(1)
+        else:
+            print("Setup config")
+            logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
+        
+
+        if not os.path.exists(log_folder):
+            os.mkdir(log_folder)
+
+        # activity_log_file = os.path.join(log_folder, "activity.log")
+        # m_log_file = os.path.join(log_folder, "messages.log")
+
+        activity_logger = logging.getLogger("ActivityLogger")
+        message_logger = logging.getLogger("MessageLogger")
+
+        activity_logger.info("Logging")
+        
         
     def create_connection(self):
         cnt = client.IRC_Client()

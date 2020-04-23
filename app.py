@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import scripts.irc as IRC
+import os.path as path
 
 try:
     import config

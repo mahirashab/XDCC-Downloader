@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import socket
 import re
+import logging
 import scripts.events as events
 
 
@@ -9,6 +10,8 @@ class IRC_Client:
     def __init__(self, ):
         self.user_registered = False
         self.joined_channel = False
+        self.message_logger = logging.getLogger("MessageLogger")
+        self.activity_logger = logging.getLogger("ActivityLogger")
 
         self.replies_buffer = ""
 
@@ -30,9 +33,11 @@ class IRC_Client:
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.connection.connect((self.server, self.port))
+            self.activity_logger.info("Connected to server %s on port %d", self.server, self.port)
         except socket.error as err:
             self.connection.close()
             self.connected = False
+            self.activity_logger.error("Couldn't connect to %s on port %d", self.server, self.port)
             print("Error ::: ", err)
             return
 
@@ -69,11 +74,13 @@ class IRC_Client:
 
         if command == "privmsg":
             print("main response    ", response, "\r\n")
+            self.message_logger.info(response)
             return
 
         if command == "welcome":
             self.real_server = prefix
             self.user_registered = True
+            self.activity_logger.info("logged as %s %s on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
             self.JOIN_message(self.channels)
 
         elif command == "nicknameinuse":
@@ -94,6 +101,7 @@ class IRC_Client:
     def register_user(self):
         self.NICK_message(self.nick_name)
         self.USER_message(self.user, self.real_name)
+        self.activity_logger.info("Tried as %s %s on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
         
 
     def response(self):
@@ -109,9 +117,11 @@ class IRC_Client:
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.connection.connect((self.server, self.port))
+            self.activity_logger.info("Retried connecting to server %s on port %d", self.server, self.port)
         except socket.error as err:
             self.connection.close()
             self.connected = False
+            self.activity_logger.info("Retry connection failed to server %s on port %d", self.server, self.port)
             print("Error ::: ", err)
             return
         self.connected = True
