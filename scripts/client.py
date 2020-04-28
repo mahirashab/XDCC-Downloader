@@ -1,11 +1,15 @@
-#!/usr/bin/python3
-import socket
+#!./env/bin/python3
+
 import re
+import socket
 import logging
 import scripts.events as events
 
 
 class IRC_Client:
+    '''This is the main connection that is connected to the server...
+       This pars the data, handles server messages and stores the data...
+    '''
 
     def __init__(self, ):
         self.user_registered = False
@@ -19,7 +23,10 @@ class IRC_Client:
                             "(?P<command>[^ ]+)( *(?P<argument> .+))?")
         
 
-    def connect(self, server, port, channels, nick_name, user, realname):
+    '''This function is used to connect to the server...
+       This configures the first connection...
+    '''
+    def connect(self, server, port, channels, nick_name, user, realname, password=None, ssl=None):
         self.server = server
         self.real_server = None
         self.port = port
@@ -27,18 +34,18 @@ class IRC_Client:
         self.user = user
         self.real_name = realname
         self.channels = channels
-
+        self.password = password
+        self.ssl = ssl
         self.connected = False
 
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.connection.connect((self.server, self.port))
             self.activity_logger.info("Connected to server %s on port %d", self.server, self.port)
-        except socket.error as err:
+        except socket.error:
             self.connection.close()
             self.connected = False
             self.activity_logger.error("Couldn't connect to %s on port %d", self.server, self.port)
-            print("Error ::: ", err)
             return
 
         self.connected = True
@@ -46,6 +53,9 @@ class IRC_Client:
         self.register_user()
 
     
+    '''This function splits each message from the reply stream...
+       And then sends tthe messages to be processed by process_replies()...
+    '''
     def run_once(self):
         res_data = self.response()
         if res_data:
@@ -56,63 +66,9 @@ class IRC_Client:
             for reply in splitted_message[:-1]:
                 if reply:
                     self.process_replies(reply)
-        
 
-
-
-    def process_replies(self, response):
-        m = self.regexp.match(response)
-
-        tags = m.group('tags')
-        prefix = m.group('prefix')
-        command = m.group('command')
-        argument = m.group('argument')
-
-        command = events.numeric.get(command, command).lower()
-        print("Command    ", prefix)
-        # print("main response    ", response, "\r\n")
-
-        if command == "privmsg":
-            print("main response    ", response, "\r\n")
-            self.message_logger.info(response)
-            return
-
-        if command == "welcome":
-            self.real_server = prefix
-            self.user_registered = True
-            self.activity_logger.info("logged as %s %s on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
-            self.JOIN_message(self.channels)
-
-        elif command == "nicknameinuse":
-            if self.connected:
-                self.nick_name += "a"
-                self.register_user()
-            else:
-                self.reconnect()
-                print("server reconnected")
-                self.register_user()
-
-        elif command == "error":
-            if "closing link" in argument.lower():
-                self.connected = False
-                self.connection.close()
-                print("closed connection...")
-
-    def register_user(self):
-        self.NICK_message(self.nick_name)
-        self.USER_message(self.user, self.real_name)
-        self.activity_logger.info("Tried as %s %s on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
-        
-
-    def response(self):
-        return self.connection.recv(512).decode("utf-8")
-
-    def get_socket(self):
-        if self.connected:
-            return self.connection
-        else: 
-            return None
-
+    
+    '''This is used to reconnect to the server is found disconnected....'''
     def reconnect(self):
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -126,7 +82,78 @@ class IRC_Client:
             return
         self.connected = True
 
+    
+    '''This disconnects from the server...'''
+    def disconnect(self):
+        try:
+            self.LEAVE_all_channels()
+            self.KILL_message("Leaving now.")
+            self.connection.close()
+        except:
+            pass
 
+
+    '''Registers the user...'''
+    def register_user(self):
+        self.NICK_message(self.nick_name)
+        self.USER_message(self.user, self.real_name)
+        self.activity_logger.info("Tried as %s(nick) on %s", self.nick_name, self.server)
+        
+
+    '''Receives the response snd decodes it...'''
+    def response(self):
+        return self.connection.recv(512).decode("utf-8")
+
+
+    '''Returns the connection socket....'''
+    def get_socket(self):
+        if self.connected:
+            return self.connection
+        else: 
+            return None
+
+    
+    '''This processes each reply and handles the counter message...'''
+    def process_replies(self, response):
+        m = self.regexp.match(response)
+
+        tags = m.group('tags')
+        prefix = m.group('prefix')
+        command = m.group('command')
+        argument = m.group('argument')
+
+        command = events.numeric.get(command, command).lower()
+        # print("Command    ", prefix)
+        # print("main response    ", response, "\r\n")
+
+        if command == "privmsg":
+            # print("main response    ", response, "\r\n")
+            self.message_logger.info(response)
+            return
+
+        if command == "welcome":
+            self.real_server = prefix
+            self.user_registered = True
+            self.activity_logger.info("logged as %s(nick) %s(real) on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
+            self.JOIN_message(self.channels)
+
+        elif command == "nicknameinuse":
+            if self.connected:
+                self.nick_name += "a"
+                self.register_user()
+            else:
+                self.reconnect()
+                self.register_user()
+
+        elif command == "error":
+            if "closing link" in argument.lower():
+                self.connected = False
+                self.connection.close()
+
+
+    '''The below functions are used to send different messages to the server...
+       Used RFC for reference...
+    '''
 
     # 3.1.2 Nick message
     def NICK_message(self, nick_name):
@@ -161,12 +188,12 @@ class IRC_Client:
         keys = self.join_list(keys)
 
         msg = f"JOIN {channels} {keys}\r\n".encode("utf-8")
-        print(msg.decode("utf-8"))
         self.connection.send(msg)
 
     def LEAVE_all_channels(self):
         msg = "JOIN 0\r\n".encode("utf-8")
         self.connection.send(msg)
+        self.activity_logger.info("Leaving all channels of server %s", self.server)
 
     # 3.2.2 Part message
     def PART_message(self, channels, message="See You In Hell..."):
@@ -259,6 +286,13 @@ class IRC_Client:
     def TIME_command(self, target):
         msg = "TIME {}\r\n".format(target).encode("utf-8")
         self.connection.send(msg)
+
+    
+    def KILL_message(self, message):
+        msg = f"KILL {self.nick_name} {message}\r\n".encode("utf-8")
+        self.connection.send(msg)
+        self.activity_logger.info("Leaving server %s", self.server)
+        
 
 
     def PONG_message(self, server):
