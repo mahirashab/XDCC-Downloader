@@ -4,6 +4,7 @@ import re
 import socket
 import logging
 import scripts.events as events
+from scripts.db.models import Message, Server
 
 
 class IRC_Client:
@@ -14,25 +15,29 @@ class IRC_Client:
     def __init__(self, ):
         self.user_registered = False
         self.joined_channel = False
+        self.replies_buffer = ""
+
         self.message_logger = logging.getLogger("MessageLogger")
         self.activity_logger = logging.getLogger("ActivityLogger")
 
-        self.replies_buffer = ""
-
         self.regexp = re.compile("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
                             "(?P<command>[^ ]+)( *(?P<argument> .+))?")
-        
+
 
     '''This function is used to connect to the server...
        This configures the first connection...
     '''
-    def connect(self, server, port, channels, nick_name, user, realname, password=None, ssl=None):
+    def connect(self, server, port, channels, nick_name, user, realname, session, password=None, ssl=None):
         self.server = server
-        self.real_server = None
         self.port = port
-        self.nick_name = nick_name
+        self.real_server = None
+
         self.user = user
+        self.nick_name = nick_name
         self.real_name = realname
+
+        self.db_session = session
+
         self.channels = channels
         self.password = password
         self.ssl = ssl
@@ -40,7 +45,9 @@ class IRC_Client:
 
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.connection.settimeout(5)
             self.connection.connect((self.server, self.port))
+            self.connection.settimeout(None)
             self.activity_logger.info("Connected to server %s on port %d", self.server, self.port)
         except socket.error:
             self.connection.close()
@@ -72,7 +79,9 @@ class IRC_Client:
     def reconnect(self):
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.connection.settimeout(5)
             self.connection.connect((self.server, self.port))
+            self.connection.settimeout(None)
             self.activity_logger.info("Retried connecting to server %s on port %d", self.server, self.port)
         except socket.error as err:
             self.connection.close()
@@ -112,6 +121,41 @@ class IRC_Client:
         else: 
             return None
 
+
+    '''This extracts the valid pvt message and stores it.'''
+    def store_pvt_message(self, res):
+        try:
+            sender = re.match(r'^(:[^ ]+)', res).group(0)
+            serial = re.search(r'(#[\d]+)', res).group(0)
+            size = re.search(r'(\[[ .0-9]+[M|G]\])', res).group(0).replace(' ', '')
+            file_name = re.search(r'([^ ]+)$', res).group(0)
+            
+            channel = re.search(r'(#[a-zA-Z]+)', res).group(0)
+        except AttributeError:
+            return None
+
+        # This try block stores the data to the database...
+        try:
+            new_message = Message(sender=sender, serial=serial, size=size, name=file_name)
+
+            server = self.db_session.query(Server).\
+            filter(Server.server==self.server).\
+            filter(Server.channel==channel).\
+            first()
+
+            if server:
+                server.messages.append(new_message)
+            else:
+                server = Server(server=self.server, channel=channel)
+                server.messages.append(new_message)
+
+            self.db_session.add(server)
+            self.db_session.commit()
+        except IndexError:
+            return None
+
+
+        
     
     '''This processes each reply and handles the counter message...'''
     def process_replies(self, response):
@@ -127,8 +171,8 @@ class IRC_Client:
         # print("main response    ", response, "\r\n")
 
         if command == "privmsg":
-            # print("main response    ", response, "\r\n")
             self.message_logger.info(response)
+            self.store_pvt_message(response)
             return
 
         if command == "welcome":
@@ -145,10 +189,18 @@ class IRC_Client:
                 self.reconnect()
                 self.register_user()
 
+        elif command == 'ping':
+            self.PONG_message(self.real_server)
+
         elif command == "error":
             if "closing link" in argument.lower():
                 self.connected = False
                 self.connection.close()
+        
+        else:
+            pass
+            # print("Command    ", command)
+            # print("main response    ", response, "\r\n")
 
 
     '''The below functions are used to send different messages to the server...
@@ -194,98 +246,6 @@ class IRC_Client:
         msg = "JOIN 0\r\n".encode("utf-8")
         self.connection.send(msg)
         self.activity_logger.info("Leaving all channels of server %s", self.server)
-
-    # 3.2.2 Part message
-    def PART_message(self, channels, message="See You In Hell..."):
-        cnl_code = ','.join(channels)
-        
-        msg = "PART {} {}\r\n".format(cnl_code, message).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.2.4 Topic message
-    def TOPIC_message(self, channel, topic=" ", change=False):
-        if change:
-            msg = "TOPIC {} :{}\r\n".format(channel, topic).encode("utf-8")
-        else:
-            msg = "TOPIC {}\r\n".format(channel).encode("utf-8")
-        
-        self.connection.send(msg)
-
-    # 3.2.5 Names message
-    def NAMES_message(self, channels, target=""):
-        cnl_code = ','.join(channels)
-
-        msg = "NAMES {}\r\n".format(cnl_code).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.2.6 List message
-    def LIST_message(self, channels, topic=""):
-        cnl_code = ','.join(channels)
-
-        msg = "LIST {}\r\n".format(cnl_code).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.2.7 Invite message
-    def INVITE_message(self, channels, nicknames, comment="Go Fuck Yourself."):
-        cnl_code = ','.join(channels)
-        user_code = ','.join(nicknames)
-
-        msg = "INVITE {} {}\r\n".format(user_code, cnl_code).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.2.8 Kick command
-    def KICK_message(self, channels, nicknames, comment="See ya Fellas!!!!"):
-        cnl_code = ','.join(channels)
-        user_code = ','.join(nicknames)
-
-        msg = "KICK {} {} :{}\r\n".format(cnl_code, user_code, comment).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.3.1 Private messages
-    def PRIVMSG_message(self, targets, message):
-        tar_code = ','.join(targets)
-
-        msg = "PRIVMSG {} :{}\r\n".format(tar_code, message).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.3.2 Notice
-    def NOTICE_message(self, targets, message):
-        tar_code = ','.join(targets)
-
-        msg = "NOTICE {} :{}\r\n".format(tar_code, message).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.4.1 Motd message
-    def MOTD_command(self, target):
-        msg = "MOTD {}\r\n".format(target).encode("utf-8")
-        self.connection.send(msg)
-    
-    # 3.4.2 Lusers message
-    def LUSERS_command(self, target):
-        msg = "LUSERS {}\r\n".format(target).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.4.3 Version message
-    def VERSION_command(self, target):
-        msg = "VERSION {}\r\n".format(target).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.4.4 Stats message
-    def STATS_command(self, querry, target):
-        if querry not in 'lmou': raise Exception("Invalid querry..")
-
-        msg = "STATS {} {}\r\n".format(querry, target).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.4.5 Links message
-    def LINKS_message(self, remoter_server):
-        msg = "LINKS {}\r\n".format(remoter_server).encode("utf-8")
-        self.connection.send(msg)
-
-    # 3.4.6 Time message
-    def TIME_command(self, target):
-        msg = "TIME {}\r\n".format(target).encode("utf-8")
-        self.connection.send(msg)
 
     
     def KILL_message(self, message):

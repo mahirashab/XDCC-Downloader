@@ -45,14 +45,15 @@ class IRC_Bot_Object:
         log_folder = os.path.join(parent_dir, "logs/")
         log_config_file = os.path.join(parent_dir, "logger.ini")
 
+        if not os.path.exists(log_folder):
+            os.mkdir(log_folder)
+
         if not os.path.exists(log_config_file):
             print("No log formatter file")
             sys.exit(1)
         else:
             logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
         
-        if not os.path.exists(log_folder):
-            os.mkdir(log_folder)
 
 
     '''This function is ran on a seperate thread....

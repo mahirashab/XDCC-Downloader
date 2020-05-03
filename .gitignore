@@ -2,3 +2,5 @@
 logs/
 *.pyc
 env/
+temp.py
+main_db.*
