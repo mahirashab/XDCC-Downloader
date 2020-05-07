@@ -4,3 +4,4 @@ logs/
 env/
 temp.py
 main_db.*
+*.env

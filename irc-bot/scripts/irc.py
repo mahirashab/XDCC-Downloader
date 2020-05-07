@@ -7,7 +7,7 @@ import select
 import logging
 import logging.config
 import scripts.client as client
-import scripts.interpreter as interpreter
+
 
 class IRC_Bot_Object:
     '''This Class is the main bot that manages all the connections.

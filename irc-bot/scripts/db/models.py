@@ -6,11 +6,13 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import Column, Integer, String, Sequence, ForeignKey
 
 
-'''This is the main messages model...
-   It is related to the Server model...
-   It stores all the messages from connected servers...
-'''
+
 class Message(Base):
+    '''This is the main messages model...
+       It is related to the Server model...
+       It stores all the messages from connected servers...
+    '''
+
     __tablename__ = 'messages'
 
     id = Column(Integer, Sequence('message_id_seq'), primary_key=True)
@@ -22,24 +24,25 @@ class Message(Base):
     server_id = Column(Integer, ForeignKey('servers.id'))
     server = relationship("Server", back_populates="messages")
 
-    __table_args__ = (schema.UniqueConstraint('sender', 'name', 'size', 'serial', name='_message_uc'), {})
+    # __table_args__ = (schema.UniqueConstraint('sender', 'name', 'size', 'serial', name='_message_uc'), {})
 
     def __repr__(self):
         return "<User(sender='%s', serial='%s', size='%s', name='%s')>" % (self.sender, self.serial, self.size, self.name)
 
 
 
-'''This stores the servers that have ever been connected to...
-   It's id is stored in the messages to relate them...
-'''
+
 class Server(Base):
+    '''This stores the servers that have ever been connected to...
+       It's id is stored in the messages to relate them...
+    '''
     __tablename__ = 'servers'
 
     id = Column(Integer, Sequence('server_id_seq'), primary_key=True)
     server = Column(String(25))
     channel = Column(String(25))
 
-    __table_args__ = (schema.UniqueConstraint('server', 'channel', name='_message_uc'), {})
+    # __table_args__ = (schema.UniqueConstraint('server', 'channel', name='_message_uc'), {})
  
     def __repr__(self):
         return "<User(server='%s', channel='%s')>" % (self.server, self.channel)
