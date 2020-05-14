@@ -1,12 +1,14 @@
-#!./env/bin/python3
+#!/usr/bin/python3.7
 
 import os
 import sys
 import time
 import select
 import logging
+import threading
 import logging.config
-import scripts.client as client
+import scripts.bot.client as client
+from scripts.db.models import AddedServers
 
 
 class IRC_Bot_Object:
@@ -16,6 +18,8 @@ class IRC_Bot_Object:
     '''
 
     def __init__(self):
+        self.activity_logger = logging.getLogger("ActivityLogger")
+        self.activity_logger.info('Starting Irc_Bot...')
         self.connections = []
         self.setup_logger()
 
@@ -53,8 +57,35 @@ class IRC_Bot_Object:
             sys.exit(1)
         else:
             logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
-        
+            self.activity_logger.info('Created main logging system.')
 
+
+    '''This updates all the info in db AddedServers'''
+    def update_connection_status(self, Session):
+        threading.Timer(100.0, self.update_connection_status, args=[Session]).start()
+
+        session = Session()
+        for conn in self.connections:
+            session.query(AddedServers).\
+                filter(AddedServers.server==conn.server).\
+                update({
+                    "real_server": conn.real_server,
+                    "channels": conn.channels,
+                    "status" : {
+                        "connected": conn.connected,
+                        "user_registered": conn.user_registered,
+                        "names": {
+                            "user": conn.user,
+                            "nick": conn.nick,
+                            "real": conn.real
+                        }
+                    }
+                })
+        
+        session.commit()
+        session.close()
+
+            
 
     '''This function is ran on a seperate thread....
        So it runs as a daemon along side the prompt process...
@@ -62,6 +93,7 @@ class IRC_Bot_Object:
        The timeout ammount is slept if no incoming data... 
     '''
     def run(self, timeout=1):
+        self.activity_logger.info('Starting the main bot thread..')
         while True:
             sockets = map(lambda c: c.get_socket(), self.connections)
             sockets = list(filter(lambda s: s != None, sockets))

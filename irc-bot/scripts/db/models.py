@@ -1,10 +1,10 @@
-#!./env/bin/python3
+#!/usr/bin/env python3.7
 
+import logging
 from sqlalchemy import schema 
 from scripts.db.database import Base
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, Integer, String, Sequence, ForeignKey
-
+from sqlalchemy import Column, Integer, String, Sequence, ForeignKey, PickleType
 
 
 class Message(Base):
@@ -48,3 +48,19 @@ class Server(Base):
         return "<User(server='%s', channel='%s')>" % (self.server, self.channel)
     
 Server.messages = relationship("Message", order_by = Message.id, back_populates="server")
+
+
+# Server real-server port channel_id 
+
+class AddedServers(Base):
+    '''This stores all the servers added and all their info..'''
+    
+    __tablename__ = 'added_servers'
+
+    id = Column(Integer, Sequence('current_server_id_seq'), primary_key=True)
+    server = Column(String(40), nullable=False)
+    real_server = Column(String(50))
+    port = Column(Integer(), nullable=False)
+    channels = Column(PickleType())
+    on_instance = Column(String(), nullable=False)
+    status = Column(PickleType())

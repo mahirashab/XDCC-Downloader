@@ -1,4 +1,4 @@
-#!./env/bin/python3
+#!/usr/bin/env python3.7
 
 import re
 import socket
@@ -9,7 +9,7 @@ from scripts.db.models import Message, Server
 
 class IRC_Client:
     '''This is the main connection that is connected to the server...
-       This pars the data, handles server messages and stores the data...
+       This parses the data, handles server messages and stores the data...
     '''
 
     def __init__(self, ):
@@ -19,9 +19,6 @@ class IRC_Client:
 
         self.message_logger = logging.getLogger("MessageLogger")
         self.activity_logger = logging.getLogger("ActivityLogger")
-
-        self.regexp = re.compile("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
-                            "(?P<command>[^ ]+)( *(?P<argument> .+))?")
 
 
     '''This function is used to connect to the server...
@@ -33,8 +30,8 @@ class IRC_Client:
         self.real_server = None
 
         self.user = user
-        self.nick_name = nick_name
-        self.real_name = realname
+        self.nick = nick_name
+        self.real = realname
 
         self.db_session = session
 
@@ -61,7 +58,7 @@ class IRC_Client:
 
     
     '''This function splits each message from the reply stream...
-       And then sends tthe messages to be processed by process_replies()...
+       And then sends the messages to be processed by process_replies()...
     '''
     def run_once(self):
         res_data = self.response()
@@ -82,14 +79,14 @@ class IRC_Client:
             self.connection.settimeout(5)
             self.connection.connect((self.server, self.port))
             self.connection.settimeout(None)
-            self.activity_logger.info("Retried connecting to server %s on port %d", self.server, self.port)
+            self.connected = True
+            self.activity_logger.info("Retried connected to server %s on port %d", self.server, self.port)
         except socket.error as err:
             self.connection.close()
             self.connected = False
             self.activity_logger.info("Retry connection failed to server %s on port %d", self.server, self.port)
             print("Error ::: ", err)
             return
-        self.connected = True
 
     
     '''This disconnects from the server...'''
@@ -98,21 +95,24 @@ class IRC_Client:
             self.LEAVE_all_channels()
             self.KILL_message("Leaving now.")
             self.connection.close()
+            self.activity_logger.info("Disconnecting from server %s on port %d", self.server, self.port)
         except:
             pass
 
 
     '''Registers the user...'''
     def register_user(self):
-        self.NICK_message(self.nick_name)
-        self.USER_message(self.user, self.real_name)
-        self.activity_logger.info("Tried as %s(nick) on %s", self.nick_name, self.server)
+        self.NICK_message(self.nick)
+        self.USER_message(self.user, self.real)
+        self.activity_logger.info("Tried as %s(nick) on %s", self.nick, self.server)
         
 
     '''Receives the response snd decodes it...'''
     def response(self):
-        return self.connection.recv(512).decode("utf-8")
-
+        try:
+            return self.connection.recv(512).decode("utf-8")
+        except:
+            return None
 
     '''Returns the connection socket....'''
     def get_socket(self):
@@ -159,7 +159,10 @@ class IRC_Client:
     
     '''This processes each reply and handles the counter message...'''
     def process_replies(self, response):
-        m = self.regexp.match(response)
+        regexp = re.compile("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
+                            "(?P<command>[^ ]+)( *(?P<argument> .+))?")
+
+        m = regexp.match(response)
 
         tags = m.group('tags')
         prefix = m.group('prefix')
@@ -178,12 +181,12 @@ class IRC_Client:
         if command == "welcome":
             self.real_server = prefix
             self.user_registered = True
-            self.activity_logger.info("logged as %s(nick) %s(real) on %s on port %s", self.nick_name, self.real_name, self.real_server, self.port)
+            self.activity_logger.info("logged as %s(nick) %s(real) on %s on port %s", self.nick, self.real, self.real_server, self.port)
             self.JOIN_message(self.channels)
 
         elif command == "nicknameinuse":
             if self.connected:
-                self.nick_name += "a"
+                self.nick += "a"
                 self.register_user()
             else:
                 self.reconnect()
@@ -249,7 +252,7 @@ class IRC_Client:
 
     
     def KILL_message(self, message):
-        msg = f"KILL {self.nick_name} {message}\r\n".encode("utf-8")
+        msg = f"KILL {self.nick} {message}\r\n".encode("utf-8")
         self.connection.send(msg)
         self.activity_logger.info("Leaving server %s", self.server)
         
