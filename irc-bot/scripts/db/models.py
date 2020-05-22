@@ -2,7 +2,7 @@
 
 import logging
 from sqlalchemy import schema 
-from scripts.db.database import Base
+from scripts.db import Base
 from sqlalchemy.orm import relationship
 from sqlalchemy import Column, Integer, String, Sequence, ForeignKey, PickleType
 
@@ -19,7 +19,7 @@ class Message(Base):
     sender = Column(String(100))
     serial = Column(String(5))
     size = Column(String(10))
-    name = Column(String(200))
+    name = Column(String())
 
     server_id = Column(Integer, ForeignKey('servers.id'))
     server = relationship("Server", back_populates="messages")

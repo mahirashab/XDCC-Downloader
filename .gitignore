@@ -2,6 +2,7 @@
 logs/
 *.pyc
 env/
-temp.py
+temp.*
 main_db.*
 *.env
+*.ipynb

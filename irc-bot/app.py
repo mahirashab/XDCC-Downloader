@@ -3,234 +3,294 @@
 import os
 import json
 import socket
-import logging
 import requests
 import threading
-import http.client
-import scripts.db.database as db
 
+from functools import wraps
 from scripts.bot import irc
+from scripts.db import DB_Session
 from marshmallow import ValidationError
-from scripts.db.models import AddedServers
+from scripts.logger import setup_logger
+from flask_restful import Resource, Api
 from flask import Flask, request, jsonify
+from scripts.db.models import AddedServers
 from scripts.db.schema import ServerSchema, ChannelSchema, AddedServersSchema
 
-activity_logger = logging.getLogger("ActivityLogger")
+setup_logger()
 
 Main_Bot = irc.IRC_Bot_Object()
-IRC_Bot_thread = threading.Thread(target=Main_Bot.run, daemon=True)
-db.init_db()
+IRC_Bot_thread = threading.Thread(target=Main_Bot.process_forever, daemon=True)
 
-DB_Session = db.Session
 PORT = 5000
 
-nick = os.environ.get('NICK_NAME')
-user = os.environ.get('USER_NAME')
-real = os.environ.get('REAL_NAME')
-
-
 app = Flask(__name__)
+api = Api(app)
 
-@app.route('/server', methods=['POST', 'GET', 'DELETE'])
-def server_handler():
-    # This sqlalchemy session is only used in the scope of this func
-    session = DB_Session()
-    # If a get request is sent, all the servers info in AddedServers are returned
-    if request.method == 'GET':
+
+def redirect_req(url, method, payload):
+    # Sends request to the connection host instance...
+    #
+    url = 'http://' + url
+    method = method.lower()
+
+    if method == 'post':
+        response = requests.post(url, data=payload)
+    elif method == 'delete':
+        response = requests.delete(url, data=payload)
+
+    return response.json(), response.status_code
+
+
+def add_channels(server, channels):
+    # Adds if any extra channels are found...
+    #
+    channels = [
+        '#'+channel if not channel.startswith('#') else channel for channel in channels]
+
+    client = next(
+        client for client in Main_Bot.clients if client.server == server)
+
+    unique = set(client.channels + channels)
+    client.channels = list(unique)
+
+    with DB_Session() as session:
+        session.query(AddedServers).\
+            filter(AddedServers.server == client.server).\
+            update({
+                "channels": client.channels
+            })
+
+
+def remove_channels(server, channels):
+    # Removes given channels...
+    #
+    channels = [
+        '#'+channel if not channel.startswith('#') else channel for channel in channels]
+
+    client = next(
+        client for client in Main_Bot.clients if client.server == server)
+
+    new_channels_list = set(client.channels) - set(channels)
+    client.channels = list(new_channels_list)
+    with DB_Session() as session:
+        session.query(AddedServers).\
+            filter(AddedServers.server == client.server).\
+            update({
+                "channels": client.channels
+            })
+
+
+def add_and_connect_server(result):
+    # Creates a client fron given data...
+    # Server name and channels are required...
+    server = result.get('server')
+    channels = result.get('channels')
+    port = result.get('port', 6667)
+
+    nick = result.get('nick', None)
+    user = result.get('user', None)
+    real = result.get('real', None)
+    port = result.get('port', 6667)
+
+    channels = [
+        '#'+channel if not channel.startswith('#') else channel for channel in channels]
+
+    new_server = AddedServers(server=server, port=port,
+                              channels=channels, on_instance=get_instance_address())
+
+    client = Main_Bot.create_connection()
+    client.connect(server, channels, port=port,
+                   nick=nick, user=user, real=real)
+
+    with DB_Session() as session:
+        session.add(new_server)
+    return 'Added server'
+
+
+def get_instance_address():
+    # Gets the instance ip address...
+    ip = socket.gethostbyname(socket.gethostname())
+    return '{}:{}'.format(ip, PORT)
+
+
+def check_payload(f):
+    @wraps(f)
+    def decorated_func(*args, **kws):
+        payload = request.get_json()
+        if not payload:
+            resp = {'message': 'No json data found in request.'}
+            return jsonify(resp)
+
+        return f(*args, **kws)
+    return decorated_func
+
+
+def varify_server_payload(f):
+    @wraps(f)
+    def decorated_func(*args, **kws):
+        try:
+            payload = request.get_json()
+            result = ServerSchema().load(payload)
+        except ValidationError as err:
+            resp = {'message': err.messages}
+            return jsonify(resp)
+
+        return f(*args, **kws)
+    return decorated_func
+
+
+def on_instance(f):
+    @wraps(f)
+    def decorated_func(*args, **kws):
+        payload = request.get_json()
+        result = ServerSchema().load(payload)
+
+        with DB_Session() as session:
+            match = session.query(AddedServers).\
+                filter(AddedServers.server == result['server']).\
+                first()
+            session.expunge_all()
+
+        if match and not match.on_instance == get_instance_address():
+            address = match.on_instance + request.path
+            method = request.method.lower()
+
+            resp = redirect_req(address, method, json.dumps(payload))
+            return jsonify(resp)
+
+        return f(*args, **kws)
+    return decorated_func
+
+
+class Server(Resource):
+
+    def get(self):
         server_schema = AddedServersSchema()
-        servers = session.query(AddedServers)
+
+        with DB_Session() as session:
+            servers = session.query(AddedServers)
+
         payload = []
         for server in servers:
             data = server_schema.dump(server)
             payload.append(data)
 
-        return  jsonify({'Data': payload}), http.client.OK
-    
-    # If request is post or delete. 
-    # This checks if the payload is not empty
-    payload = request.get_json()
-    if not payload:
-        resp = {'message': 'No json data found in request.'}
-        return jsonify(resp), http.client.BAD_REQUEST
+        return jsonify({'Data': payload})
 
-    # main error handler
-    try:
-        # Validating if appropriate data was sent
+    @check_payload
+    @varify_server_payload
+    @on_instance
+    def post(self, *args, **kws):
+        payload = request.get_json()
         result = ServerSchema().load(payload)
-        match = session.query(AddedServers).\
-                    filter(AddedServers.server==result['server']).\
-                    first()
 
-        # if the method is delete. the server is deleted and disconnected.
-        if request.method == 'DELETE':
-            if not match: return 'No such server'
-
-            # If the connection is on this instance
-            if match.on_instance == get_instance_address():
-                # Found on instance. Removing server...
-                conn = list(filter(lambda conn: conn.server == result['server'], Main_Bot.connections))[0]
-                Main_Bot.remove_connection(conn)
-                session.delete(match)
-                session.commit()
-                session.close()
-                msg = { "message": "Server disconnected and removed", }
-                return jsonify(msg), http.client.OK
-            else:
-                # Sending request to instance server...
-                resp = redirect_req(match.on_instance + '/server', 'delete', json.dumps(payload))
-                return jsonify(resp), http.client.OK
-
-        # Runs if the request is post
-        # if server is present, extra channels are joined.
-        if match:
-            if match.on_instance == get_instance_address():
-                # Adding new channels if not already there...
-                add_channels(result['server'], result['channels'])
-                msg = { "message": "Server already exists. The new channels were added.", }
-                return jsonify(msg), http.client.OK
-            else:
-                # Sending request to instance server...
-                resp = redirect_req(match.on_instance + '/server', 'post', json.dumps(payload))
-                return jsonify(resp), http.client.OK
-        else:
-            # else the server is created and connected...
-            message = add_and_connect_server(result, session)
-            return jsonify({"message": message}), http.client.OK
-        
-    except ValidationError as err:
-        resp = { 'message': err.messages }
-        return jsonify(resp), http.client.BAD_REQUEST
-    except KeyError as err:
-        resp = { 'message': 'Proper keys are not sent.'}
-        return jsonify(resp), http.client.BAD_REQUEST
-
-
-@app.route('/channel', methods=['POST'])
-def channel_handler():
-    session = DB_Session()
-    # checking if payload is given
-    payload = request.get_json()
-    if not payload:
-        resp = {'message': 'No json data found in request.'}
-        return jsonify(resp), http.client.BAD_REQUEST
-
-    try:
-        # getting the server
-        result = ChannelSchema().load(payload)
-        match = session.query(AddedServers).\
-                filter(AddedServers.server==result['server']).\
+        with DB_Session() as session:
+            match = session.query(AddedServers).\
+                filter(AddedServers.server == result['server']).\
                 first()
 
         if match:
-            # The extra channels are joined..
-            if match.on_instance == get_instance_address():
-                # add to the channels list if any channel is disconnected
-                add_channels(result['server'], result['channels'])
-                msg = { "message": "The new channels were added.", }
-                return jsonify(msg), http.client.OK
-            else:
-                resp = redirect_req(match.on_instance + '/channel', 'post', json.dumps(payload))
-                return jsonify(resp), http.client.OK
-        # else the server is connected to default port and the channels are joined...
+            # Adding new channels if not already there...
+            add_channels(result['server'], result['channels'])
+            msg = {"message": "Server already exists. The new channels were added."}
+            return jsonify(msg)
         else:
-            add_and_connect_server(result, session, port=True)
-            return jsonify({"message": 'Server was not connected. Connected to server and joined channel.'}), http.client.OK
+            # else the server is created and connected...
+            message = add_and_connect_server(result)
+            return jsonify({"message": message})
 
-    except ValidationError as err:
-        resp = { 'message': err.messages }
-        return jsonify(resp), http.client.BAD_REQUEST
-    except KeyError as err:
-        resp = { 'message': 'Proper keys are not sent.'}
-        return jsonify(resp), http.client.BAD_REQUEST
+    @check_payload
+    @varify_server_payload
+    @on_instance
+    def delete(self):
+        payload = request.get_json()
+        result = ServerSchema().load(payload)
 
+        with DB_Session() as session:
+            match = session.query(AddedServers).\
+                filter(AddedServers.server == result['server']).\
+                first()
 
-@app.route('/help')
-def get_help():
-    resp = {
-        "message": 'This describes the full api..',
-        "API": {
-            "/server" : {
-                "method:post": {
-                    "payload" : {
-                        "server": 'server name (str)',
-                        "port": 'port number (int)',
-                        "channels": 'list of channels (str)'
-                    },
-                    "action": 'Adds the server to db. Connects to it. Joins channels.'
-                },
-                "method:get": {
-                    "action" : 'sends all the connections data back..'
-                },
-                "method:delete": {
-                    "payload": {
-                        "server": 'server name'
-                    },
-                    "action": 'deletes the server.'
-                }
-            },
-            "/channel": {
-                "method:post": {
-                    "payload": {
-                        "server": 'server name (str)',
-                        "channels": 'list of channel names (str)'
-                    },
-                    "action": 'adds the channels to server.'
-                }
-            }
-        }
-    }
+            if not match:
+                msg = {"message": "No such server."}
+                return jsonify(msg)
 
-    return jsonify(resp), http.client.OK
+            # Found on instance. Removing server...
+            client = next(
+                client for client in Main_Bot.clients if client.server == result['server'])
 
 
-'''Sends request to the connection host instance...'''
-def redirect_req(url, method, payload):
-    url = 'http://' + url
-    method = method.lower()
-    headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+            Main_Bot.remove_client(client)
+            session.delete(match)
 
-    if method == 'post':
-        response = requests.post(url, headers=headers, data=payload)
-    elif method == 'delete':
-        response = requests.delete(url, headers=headers, data=payload)
-
-    return response.json(), response.status_code
-
-    
-'''Adds if any extra channels are found...'''
-def add_channels(server, channels):
-    conn = list(filter(lambda conn: conn.server == server, Main_Bot.connections))[0]
-    unique = set(conn.channels + channels)
-    conn.channels = list(unique)
+            msg = {"message": "Server disconnected and removed"}
+            return jsonify(msg)
 
 
-'''Creates new server in db. and connects to it..'''
-def add_and_connect_server(result, session, port=False):
-    if port:
-        result['port'] = 6667
+def varify_channel_payload(f):
+    @wraps(f)
+    def decorated_func(*args, **kws):
+        try:
+            payload = request.get_json()
+            result = ChannelSchema().load(payload)
+        except ValidationError as err:
+            resp = {'message': err.messages}
+            return jsonify(resp)
 
-    new_server = AddedServers(server=result['server'], port=result['port'], channels=result['channels'], on_instance=get_instance_address())
-
-    client = Main_Bot.create_connection()
-    client.connect(result["server"], result["port"], result["channels"], nick, user, real, db.session)
-
-    session.add(new_server)
-    session.commit()
-    session.close()
-    return 'Added server'
+        return f(*args, **kws)
+    return decorated_func
 
 
-'''This gets the instance address..'''
-def get_instance_address():
-    ip = socket.gethostbyname(socket.gethostname())
-    return f'{ip}:{PORT}'
+class Channel(Resource):
 
+    @check_payload
+    @varify_channel_payload
+    @on_instance
+    def post(self):
+        payload = request.get_json()
+        result = ServerSchema().load(payload)
+
+        with DB_Session() as session:
+            match = session.query(AddedServers).\
+                filter(AddedServers.server == result['server']).\
+                first()
+
+        if match:
+            # add to the channels list if any channel is disconnected
+            add_channels(result['server'], result['channels'])
+            msg = {"message": "The new channels were added.", }
+            return jsonify(msg)
+        else:
+            add_and_connect_server(result)
+            msg = {
+                "message": 'Server was not Found. Connected to server and joined channel.'}
+            return jsonify(msg)
+
+    @check_payload
+    @varify_channel_payload
+    @on_instance
+    def delete(self):
+        payload = request.get_json()
+        result = ServerSchema().load(payload)
+
+        with DB_Session() as session:
+            match = session.query(AddedServers).\
+                filter(AddedServers.server == result['server']).\
+                first()
+
+        if match:
+            # removed the provided channels
+            remove_channels(result['server'], result['channels'])
+            msg = {"message": "The channels were removed.", }
+            return jsonify(msg)
+        else:
+            msg = {"message": "No such server..", }
+            return jsonify(msg)
+
+
+api.add_resource(Server, '/server')
+api.add_resource(Channel, '/channel')
 
 if __name__ == '__main__':
     IRC_Bot_thread.start()
-
-    activity_logger.info('Starting the main background checking thread thread..')
-    Main_Bot.update_connection_status(db.Session)
-
-    activity_logger.info('Starting flask app on port %d', PORT)
     app.run(host='0.0.0.0', port=PORT, debug=True)

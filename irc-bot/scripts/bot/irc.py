@@ -1,14 +1,16 @@
-#!/usr/bin/python3.7
+#!./.env/bin/python3
 
-import os
-import sys
 import time
+import functools
 import select
+import schedule
+import itertools
 import logging
-import threading
-import logging.config
-import scripts.bot.client as client
+from scripts.db import DB_Session
+from scripts.bot.client import IRC_Client
+from more_itertools import consume, repeatfunc
 from scripts.db.models import AddedServers
+
 
 
 class IRC_Bot_Object:
@@ -17,93 +19,100 @@ class IRC_Bot_Object:
        And used select() sysyem call to monitor incoming data in the run() function.
     '''
 
-    def __init__(self):
-        self.activity_logger = logging.getLogger("ActivityLogger")
-        self.activity_logger.info('Starting Irc_Bot...')
-        self.connections = []
-        self.setup_logger()
-
+    main_logger = logging.getLogger("mainlogger")
+    main_logger.info('Starting Irc_Bot...')
     
-    '''This creates and returns client object..'''
+    def __init__(self):   
+        self.clients = []
+        self.schedule_jobs()
+
+
+    def schedule_jobs(self):
+        # Register all the bg jobs...
+        schedule.every(2).minutes.do(self.update_client_status)
+        schedule.every(1).minute.do(self.check_connection)
+
+
     def create_connection(self):
-        cnt = client.IRC_Client()
-        self.connections.append(cnt)
-        return cnt
-
-    
-    '''This removes a client object...'''
-    def remove_connection(self, connection):
-        try:
-            connection.disconnect()
-            self.connections.remove(connection)
-        except ValueError:
-            print("\nInvalid server given...")
-
-    
-    '''This sets up the main loggers...
-       The logger.ini file is used to configure the loggers...
-       This is called by the IRC_Bot in __init__ function...
-    '''
-    def setup_logger(self):
-        parent_dir = os.getcwd()
-        log_folder = os.path.join(parent_dir, "logs/")
-        log_config_file = os.path.join(parent_dir, "logger.ini")
-
-        if not os.path.exists(log_folder):
-            os.mkdir(log_folder)
-
-        if not os.path.exists(log_config_file):
-            print("No log formatter file")
-            sys.exit(1)
-        else:
-            logging.config.fileConfig(log_config_file, disable_existing_loggers=False)
-            self.activity_logger.info('Created main logging system.')
+        # This creates and returns client object..
+        client = IRC_Client()
+        self.clients.append(client)
+        return client
 
 
-    '''This updates all the info in db AddedServers'''
-    def update_connection_status(self, Session):
-        threading.Timer(100.0, self.update_connection_status, args=[Session]).start()
+    def remove_client(self, client):
+        # This removes a client object...
+        client.disconnect()
+        self.clients.remove(client)
 
-        session = Session()
-        for conn in self.connections:
-            session.query(AddedServers).\
-                filter(AddedServers.server==conn.server).\
-                update({
-                    "real_server": conn.real_server,
-                    "channels": conn.channels,
-                    "status" : {
-                        "connected": conn.connected,
-                        "user_registered": conn.user_registered,
-                        "names": {
-                            "user": conn.user,
-                            "nick": conn.nick,
-                            "real": conn.real
+
+    @property
+    def sockets(self):
+        # Returns the readable sockets...
+        return [
+            client.socket for client in self.clients if client.connected and client.socket
+        ]
+
+
+    def update_client_status(self):
+        '''This updates all the info in db AddedServers
+        '''
+        with DB_Session() as session:
+            for conn in self.clients:
+                session.query(AddedServers).\
+                    filter(AddedServers.server == conn.server).\
+                    update({
+                        "real_server": conn.real_server,
+                        "channels": conn.channels,
+                        "status": {
+                            "connected": conn.connected,
+                            "user_registered": conn.user_registered,
+                            "names": {
+                                "user": conn.user,
+                                "nick": conn.nick,
+                                "real": conn.real
+                            }
                         }
-                    }
-                })
-        
-        session.commit()
-        session.close()
+                    })
 
-            
 
-    '''This function is ran on a seperate thread....
-       So it runs as a daemon along side the prompt process...
-       It used select() system call to monitor the sockets of clients...
-       The timeout ammount is slept if no incoming data... 
-    '''
-    def run(self, timeout=1):
-        self.activity_logger.info('Starting the main bot thread..')
-        while True:
-            sockets = map(lambda c: c.get_socket(), self.connections)
-            sockets = list(filter(lambda s: s != None, sockets))
+    def check_connection(self):
+        # remove = []
 
-            if sockets:
-                readable, writable, error = select.select(sockets, [], sockets, timeout)
-
-                for s in readable: 
-                    for c in self.connections:
-                        if s == c.get_socket():
-                            c.run_once()
+        for conn in reversed(self.clients):
+            if conn.reconnect_tries < conn.max_reconnect_tries:
+                if not conn.connected:
+                    conn.reconnect()
             else:
-                time.sleep(1)
+                with DB_Session() as session:
+                    session.query(AddedServers).\
+                        filter(AddedServers.server == conn.server).delete()
+                self.remove_client(conn)
+
+        # if remove:
+        #     self.clients = list(set(self.clients) - set(remove))
+        #     with DB_Session() as session:
+        #         for conn in remove:
+        #             session.query(AddedServers).\
+        #                 filter(AddedServers.server == conn.server).delete()
+
+
+    def process_once(self, timeout=None):
+        sockets = self.sockets
+
+        if sockets:
+            readable, writable, error = select.select(
+                sockets, [], sockets, timeout)
+
+            for sock, conn in itertools.product(readable, self.clients):
+                if sock == conn.socket:
+                    conn.run_once()
+        else:
+            time.sleep(1)
+        # Run the bg jobs...
+        schedule.run_pending()
+
+    def process_forever(self, timeout=0.2):
+        # Run the main infinite loop...
+        once = functools.partial(self.process_once, timeout=timeout)
+        consume(repeatfunc(once))
