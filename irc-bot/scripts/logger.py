@@ -1,4 +1,3 @@
-#!./.env/bin/python3
 
 import os
 import logging.config
@@ -10,6 +9,7 @@ log_folder = os.path.join(parent_dir, "logs/")
 if not os.path.exists(log_folder):
     os.mkdir(log_folder)
 
+
 # DictConfig of all loggers...
 LOGGING_CONFIG = {
     'version': 1,
@@ -18,6 +18,9 @@ LOGGING_CONFIG = {
         'standard': {
             'format': '-- [%(levelname)s] - [%(module)s] - ||| %(message)s'
         },
+        'message': {
+            'format': '--| %(message)s'
+        }
     },
     'handlers': {
         'default': {
@@ -35,16 +38,9 @@ LOGGING_CONFIG = {
         },
         'message_handler': {
             'level': 'INFO',
-            'formatter': 'standard',
+            'formatter': 'message',
             'class': 'logging.FileHandler',
             'filename': os.path.join(os.getcwd(), "logs/", "messages.log"),
-            'mode': 'w'
-        },
-        'sqlalchemy_handler': {
-            'level': 'DEBUG',
-            'formatter': 'standard',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(os.getcwd(), "logs/", "db_log.log"),
             'mode': 'w'
         }
     },
@@ -54,13 +50,7 @@ LOGGING_CONFIG = {
             'level': 'DEBUG',
             'propagate': False
         },
-        'sqlalchemy': {  # db logger
-            'handlers': ['sqlalchemy_handler'],
-            'level': 'DEBUG',
-            'qualname': 'sqlalchemy',
-            'propagate': False
-        },
-        'mainlogger': {  # mail logger
+        'mainlogger': {  # main logger
             'handlers': ['main_handler'],
             'level': 'DEBUG',
             'qualname': 'mainlogger',

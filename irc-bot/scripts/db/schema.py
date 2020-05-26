@@ -1,4 +1,3 @@
-#!/usr/bin/env python3.7
 
 from marshmallow import Schema, fields
 from scripts.db.models import AddedServers
@@ -14,6 +13,9 @@ class ServerSchema(Schema):
     nick = fields.Str()
     user = fields.Str()
     real = fields.Str()
+
+    ssl = fields.Str()
+    password = fields.Str()
 
 # Checks the incoming payload for the /channel route...
 class ChannelSchema(Schema):

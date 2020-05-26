@@ -3,41 +3,10 @@ version: '3.4'
 services:
   irc-bot:
     build: ./irc-bot
-    environment: 
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_USER_PASSWORD}
-      - DB_NAME=${DB_NAME}
-
-      - NICK_NAME=${NICK}
-      - USER_NAME=${USER}
-      - REAL_NAME=${REAL}
     volumes: 
       - ${PWD}/irc-bot/logs:/usr/src/app/logs
     ports: 
       - 81:80
       - 5000:5000
-    depends_on: 
-      - postgres-db
-
-  postgres-db:
-    image: postgres
-    ports: 
-      - 5421:5432
-    environment: 
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_USER_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
-    volumes: 
-      - irc-db:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5432"]
-      interval: 1m
-      timeout: 10s
-      retries: 300
-      start_period: 1s
-
-volumes: 
-  irc-db:
-
 
   

@@ -1,4 +1,3 @@
-#!./.env/bin/python3
 
 import time
 import functools
@@ -6,10 +5,10 @@ import select
 import schedule
 import itertools
 import logging
-from scripts.db import DB_Session
+from scripts.api import app
 from scripts.bot.client import IRC_Client
-from more_itertools import consume, repeatfunc
 from scripts.db.models import AddedServers
+from more_itertools import consume, repeatfunc
 
 
 
@@ -23,6 +22,7 @@ class IRC_Bot_Object:
     main_logger.info('Starting Irc_Bot...')
     
     def __init__(self):   
+        self.client_hash_table = {}
         self.clients = []
         self.schedule_jobs()
 
@@ -30,10 +30,10 @@ class IRC_Bot_Object:
     def schedule_jobs(self):
         # Register all the bg jobs...
         schedule.every(2).minutes.do(self.update_client_status)
-        schedule.every(1).minute.do(self.check_connection)
+        schedule.every(2).minutes.do(self.check_connection)
 
 
-    def create_connection(self):
+    def create_client(self):
         # This creates and returns client object..
         client = IRC_Client()
         self.clients.append(client)
@@ -43,6 +43,7 @@ class IRC_Bot_Object:
     def remove_client(self, client):
         # This removes a client object...
         client.disconnect()
+        del self.client_hash_table[client.server]
         self.clients.remove(client)
 
 
@@ -50,18 +51,18 @@ class IRC_Bot_Object:
     def sockets(self):
         # Returns the readable sockets...
         return [
-            client.socket for client in self.clients if client.connected and client.socket
+            client.socket 
+            for client in self.clients 
+            if client.connected and client.socket
         ]
 
 
     def update_client_status(self):
-        '''This updates all the info in db AddedServers
-        '''
-        with DB_Session() as session:
-            for conn in self.clients:
-                session.query(AddedServers).\
-                    filter(AddedServers.server == conn.server).\
-                    update({
+        # Updates the info in db AddedServers...
+        # 
+        for conn in self.clients:
+            with app.app_context():
+                AddedServers.update_info(conn.server, {
                         "real_server": conn.real_server,
                         "channels": conn.channels,
                         "status": {
@@ -77,36 +78,27 @@ class IRC_Bot_Object:
 
 
     def check_connection(self):
-        # remove = []
-
+        # Check if the clients are connected...
         for conn in reversed(self.clients):
             if conn.reconnect_tries < conn.max_reconnect_tries:
                 if not conn.connected:
                     conn.reconnect()
             else:
-                with DB_Session() as session:
-                    session.query(AddedServers).\
-                        filter(AddedServers.server == conn.server).delete()
+                with app.app_context():
+                    AddedServers.delete_server(conn.server)
                 self.remove_client(conn)
 
-        # if remove:
-        #     self.clients = list(set(self.clients) - set(remove))
-        #     with DB_Session() as session:
-        #         for conn in remove:
-        #             session.query(AddedServers).\
-        #                 filter(AddedServers.server == conn.server).delete()
 
 
     def process_once(self, timeout=None):
-        sockets = self.sockets
+        sockets = self.sockets # Gets connected sockets...
 
         if sockets:
-            readable, writable, error = select.select(
-                sockets, [], sockets, timeout)
+            readable, writable, error = select.select(sockets, [], sockets, timeout)
 
             for sock, conn in itertools.product(readable, self.clients):
-                if sock == conn.socket:
-                    conn.run_once()
+                if sock == conn.socket: # Matches socket to client and gets data...
+                    conn.recv_data()
         else:
             time.sleep(1)
         # Run the bg jobs...
