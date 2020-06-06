@@ -3,5 +3,5 @@ logs/
 *.pyc
 env/
 temp.*
-*.txt
 *.ipynb
+*.db
