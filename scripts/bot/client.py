@@ -2,11 +2,7 @@
 import re
 import socket
 import logging
-import schedule
-import functools
-from cmd2.ansi import style
 import scripts.bot.events as events
-
 
 class Connect_Factory():
     ip_type = socket.AF_INET
@@ -23,9 +19,64 @@ class Connect_Factory():
         sock.connect(address)
 
         return sock
+    
+    __call__ = connect
 
 
-class BaseClient:
+class Source(str): 
+            
+    @property
+    def sender(self):
+        return self.split('!')[0]
+    
+    def __repr__(self):
+        return "< Source sender:%s >" % (self.sender)
+
+    def __str__(self):
+        return "< Source sender:%s >" % (self.sender)
+
+
+class Argument(str):
+
+    @property
+    def data(self):
+        if isinstance(self, bytes):
+            return self
+        else:
+            None
+    
+    @property
+    def receiver(self):
+        temp = self.split(':')[0].split(' ')
+        temp = filter(lambda x: x, temp)
+        return list(temp)[0]
+        
+    
+    @property
+    def message(self):
+        return self.split(':')[1]
+    
+    @property
+    def channel(self):
+        channels = re.findall(r'(?P<channel>#[^ ]+)', self)
+        return channels[0] if len(channels) == 1 else channels
+    
+    def __repr__(self):
+        return "< Argument receiver:%s message:%s channel:%s>" % (self.receiver, self.channel, self.message)
+
+    def __str__(self):
+        return "< Argument receiver:%s channel:%s message:%s>" % (self.receiver, self.channel, self.message)
+
+class Event:
+    
+    def __init__(self, type, source, argument):
+        self.type = type
+        self.source = source
+        self.argument = argument
+
+
+
+class IRC_Client:
 
     main_log = logging.getLogger("mainlogger")
     msg_log = logging.getLogger("messagelogger")
@@ -48,15 +99,20 @@ class BaseClient:
 
         #  Connection status
         self.joined_channels = []
+        self.downloads = []
         self.real_server = None
         self.connected = False
         self.user_registered = False
 
         #  Connection socket.
         self.socket = None
+        
+        self.handlers = {
+            'ping': self.on_ping,
+            'welcome': self.on_welcome,
+        }
 
         self.connect_factory = Connect_Factory()
-        self.schedule_jobs()
 
 
 
@@ -91,14 +147,13 @@ class BaseClient:
                             self.port)
         try:
             if self.connected:
-                self.LEAVE_all_channels()
+                self.leave_all_channels()
                 self.quit_msg("Leaving now.")
             self.socket.close()
         except:
             self.socket = None
             self.connected = False
         finally:
-            self.remove_jobs()
             self.socket = None
             self.connected = False
 
@@ -112,41 +167,16 @@ class BaseClient:
 
         self.nick_msg(self.nickname)
         self.user_msg(self.username, self.realname)
-        
-
-    def schedule_jobs(self):
-        # Starts all the jobs that run in background.
-        self.jobs = [
-            schedule.every(15).seconds.do(self.check_channel_joins),
-            schedule.every(100).seconds.do(self.ping_ponger)
-        ]
 
 
-    def remove_jobs(self):
-        # Remove all the jobs for this client...
-        if self.jobs:
-            [schedule.cancel_job(job) for job in self.jobs]
-            self.jobs = None
+    def add_channels(self, channels):
+        self.channels += channels
+        self.channels = self.remove_duplicates(self.channels)
 
-
-    def check_channel_joins(self):
-        # Check to join and leave channels...
-        if self.is_connected():
-            join = set(self.channels) - set(self.joined_channels)
-            leave = set(self.joined_channels) - set(self.channels)
-
-            if join:
-                self.join_msg(list(join))
-            if leave:
-                self.part_msg(list(leave))
-
-
-    def ping_ponger(self):
-        # Pings the server in the background...
-        if self.connected and self.real_server:
-            self.pong_msg(self.real_server)
-
-
+    def leave_channels(self, channels):
+        self.part_msg(channels)
+        self.channels = list(set(self.channels) - set(channels))
+    
     def response(self):
         # Receives the response and decodes it...
         try:
@@ -166,65 +196,38 @@ class BaseClient:
             for reply in splitted_message[:-1]:
                 if reply:
                     self.process_replies(reply)
-
+        
 
 
     def process_replies(self, response):
         # This processes each reply and handles the counter message...
-        try:
-            regexp = re.compile("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
-                                "(?P<command>[^ ]+)( *(?P<argument> .+))?")
-            match = regexp.match(response).group
-        except:
-            return
+        match = self.match_pattern("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
+                                    "(?P<command>[^ ]+)( *(?P<argument> .+))?", response)
+        
+        if not match: return
 
-        prefix = match('prefix')
         command = match('command')
-        argument = match('argument')
+        prefix = Source(match('prefix'))
+        argument = Argument(match('argument'))
 
         command = events.numeric.get(command, command).lower()
+
 
         # stores the real server name...
         if prefix and not self.real_server:
             self.real_server = prefix
-
-
-        if command == "privmsg":
-            self.prvt_handler(prefix, argument)
-            return
-        
-        self.msg_log.info(response)
-
-        if command == "welcome":
-            self.welcome_handler()
-
-        elif command == 'endofnames':
-            channel = re.search(r'(?P<channel>#[^ ]+)', argument).group('channel')
-            self.join_handler(channel)
-
-
-        elif command == 'ping':
-            cookie = re.search(r'( :(?P<cookie>.*))', argument).group('cookie')
-            self.pong_msg(cookie)
-        
-
-        elif command == "nicknameinuse":
-            if self.connected:
-                self.nickname += "a"
-                self.register_user()
-            else:
-                self.reconnect()
-                self.register_user()
-
-
-
-    def prvt_handler(self, prefix, argument):
-        # This will be replaced by the child
-        pass
-        
             
+        event = Event(command, prefix, argument)
+        self._handle_event(event)
+        
 
-    def welcome_handler(self):
+    def _handle_event(self, event):
+        handler = self.handlers.get(event.type, None)
+        if handler:
+            handler(event)
+        
+
+    def on_welcome(self, event):
         # Handles welcome message from server...
         #
         self.main_log.info(
@@ -235,13 +238,19 @@ class BaseClient:
 
         self.user_registered = True
         self.join_msg(self.channels)
+        
 
 
-    def join_handler(self, channel):
-        # Handles the join message from server...
-        self.joined_channels.append(channel.lower())
-        self.joined_channels = list(set(self.joined_channels))
-
+    def on_part(self, event):
+        if event.source.sender == self.nickname:
+            channel = event.argument.channel
+            self.channels.remove(channel)
+        
+    
+    def on_ping(self, event):
+        target = event.argument.message
+        self.pong_msg(target)
+        
 
     def prepare_msg(self, string):
         # Encodes a string and returns it...
@@ -300,21 +309,35 @@ class BaseClient:
         self.send_msg(msg)
 
 
-    def LEAVE_all_channels(self):
+    def leave_all_channels(self):
         msg = "JOIN 0"
         self.send_msg(msg)
 
 
-    def pong_msg(self, message):
-        msg = "PONG :{}".format(message)
+    def whois(self, nick):
+        msg = "WHOIS {}".format(nick)
         self.send_msg(msg)
 
 
+    def pong_msg(self, target):
+        msg = "PONG :{}".format(target)
+        self.send_msg(msg)
 
-    def is_channel(self, target):
-        # Return true if the target is a channel...
-        return target.startswith('#')
+
+    def match_pattern(self, pattern, string):
+        try:
+            regexp = re.compile(pattern)
+            match = regexp.search(string).group
+            return match
+        except AttributeError:
+            self.main_log.debug("Pattern match failed for ::%s", string)
+            return None
+
 
     def is_connected(self):
         # Return true if socket is connected...
         return self.connected
+
+
+    def remove_duplicates(self, l):
+        return list(set(l))
