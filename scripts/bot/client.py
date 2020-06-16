@@ -1,5 +1,6 @@
 
 import re
+import time
 import socket
 import logging
 import scripts.bot.events as events
@@ -57,15 +58,15 @@ class Argument(str):
         return self.split(':')[1]
     
     @property
-    def channel(self):
+    def channels(self):
         channels = re.findall(r'(?P<channel>#[^ ]+)', self)
-        return channels[0] if len(channels) == 1 else channels
+        return [channel.lower() for channel in channels]
     
     def __repr__(self):
-        return "< Argument receiver:%s message:%s channel:%s>" % (self.receiver, self.channel, self.message)
+        return "< Argument receiver:%s channels:%s message:%s>" % (self.receiver, self.channels, self.message)
 
     def __str__(self):
-        return "< Argument receiver:%s channel:%s message:%s>" % (self.receiver, self.channel, self.message)
+        return "< Argument receiver:%s channels:%s message:%s>" % (self.receiver, self.channels, self.message)
 
 class Event:
     
@@ -78,71 +79,45 @@ class Event:
 
 class IRC_Client:
 
-    main_log = logging.getLogger("mainlogger")
-    msg_log = logging.getLogger("messagelogger")
+    logger = logging.getLogger("mainlogger")
+    messages = logging.getLogger("messagelogger")
 
     def __init__(self):
         # Temp 
         self.replies_buffer = ""
-        self.recon_tries = 1
+
+        self.max_reconn_tries = 3
+        self.reconn_tries = 0
 
         # Client info
         self.nickname = None
         self.username = None
         self.realname = None
-        self.channels = []
+        self.channels = set([])
 
         # Server info
         self.server = None
         self.port = None
-        self.address = (self.server, self.port)
 
         #  Connection status
-        self.joined_channels = []
-        self.downloads = []
+        self.joined_channels = set([])
         self.real_server = None
         self.connected = False
-        self.user_registered = False
 
         #  Connection socket.
         self.socket = None
+
+        self.handlers = {}
         
-        self.handlers = {
-            'ping': self.on_ping,
-            'welcome': self.on_welcome,
-        }
+        self.add_event_handler('ping', self.on_ping)
+        self.add_event_handler('part', self.on_part)
+        
 
         self.connect_factory = Connect_Factory()
 
-
-
-    def reconnect(self):
-        # Tries to reconnect to the server...
-        try:
-            self.socket = self.connect_factory.connect(self.address)
-            self.main_log.info(
-                    "Reconnected to (server=%s) on (port=%d)", 
-                                self.server, 
-                                self.port)                        
-        except socket.error:
-            self.main_log.critical(
-                    "Connection failed (time=%d) to (server=%s) (port=%d)",
-                                self.recon_tries, 
-                                self.server, 
-                                self.port)
-            
-            self.connected = False
-            self.socket = None
-            self.recon_tries += 1
-            return 0
-
-        self.connected = True
-        self.register_user()
-
-
     def disconnect(self):
         # Disconnects from the server...
-        self.main_log.info("Removing server %s on port %d", 
+        self.logger.info("Removing server %s on port %d", 
                             self.server, 
                             self.port)
         try:
@@ -160,7 +135,7 @@ class IRC_Client:
 
     def register_user(self):
         # Registers the user...
-        self.main_log.info(
+        self.logger.info(
                 "Registering user as (nick=%s) (user=%s)", 
                             self.nickname, 
                             self.username)
@@ -170,14 +145,15 @@ class IRC_Client:
 
 
     def add_channels(self, channels):
-        self.channels += channels
-        self.channels = self.remove_duplicates(self.channels)
+        self.join(channels)
+        self.channels.update(channels)
 
     def leave_channels(self, channels):
-        self.part_msg(channels)
-        self.channels = list(set(self.channels) - set(channels))
-    
-    def response(self):
+        self.part(channels)
+        self.channels.difference_update(channels)
+
+
+    def read_data(self):
         # Receives the response and decodes it...
         try:
             return self.socket.recv(512).decode("utf-8")
@@ -187,7 +163,7 @@ class IRC_Client:
 
     def recv_data(self):
         # Receives response and processess them...
-        res_data = self.response()
+        res_data = self.read_data()
         if res_data:
             splitted_message = res_data.split("\r\n")
             splitted_message[0] = self.replies_buffer + splitted_message[0]
@@ -201,6 +177,7 @@ class IRC_Client:
 
     def process_replies(self, response):
         # This processes each reply and handles the counter message...
+        self.messages.info(response)
         match = self.match_pattern("^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?"
                                     "(?P<command>[^ ]+)( *(?P<argument> .+))?", response)
         
@@ -215,62 +192,56 @@ class IRC_Client:
 
         # stores the real server name...
         if prefix and not self.real_server:
-            self.real_server = prefix
+            self.real_server = match('prefix')
             
         event = Event(command, prefix, argument)
         self._handle_event(event)
         
+    
+    def add_event_handler(self, event, fn):
+        handlers = self.handlers.get(event, None)
+
+        if handlers is None:
+            self.handlers[event] = []
+        
+        self.handlers[event].append(fn)
+
+
+    def remove_event_handler(self, event, fn):
+        try:
+            self.handlers[event].remove(fn)
+        except KeyError:
+            pass
 
     def _handle_event(self, event):
-        handler = self.handlers.get(event.type, None)
-        if handler:
-            handler(event)
+        handlers = self.handlers.get(event.type, None)
+        if handlers:
+            for fn in handlers:
+                fn(event)
         
-
-    def on_welcome(self, event):
-        # Handles welcome message from server...
-        #
-        self.main_log.info(
-                "logged as (nick= % s) (real= % s) on (server=%s)",
-                           self.nickname, 
-                           self.realname, 
-                           self.server)
-
-        self.user_registered = True
-        self.join_msg(self.channels)
         
-
 
     def on_part(self, event):
         if event.source.sender == self.nickname:
-            channel = event.argument.channel
-            self.channels.remove(channel)
+            channels = event.argument.channel
+            self.channels.difference_update(channels)
+            self.joined_channels.difference_update(channels)
         
     
     def on_ping(self, event):
         target = event.argument.message
-        self.pong_msg(target)
+        self.pong(target)
         
-
-    def prepare_msg(self, string):
-        # Encodes a string and returns it...
-        return string.encode('utf-8') + b'\r\n'
-
 
     def send_msg(self, string):
         # Sends a string to the server...
-        if not self.is_connected():
-            self.main_log.debug(
-                    "Server not connected.Couldn't send Message :: %s", string)
-            return
-
         try:
-            msg_bytes = self.prepare_msg(string)
+            msg_bytes = string.encode('utf-8') + b'\r\n'
             self.socket.send(msg_bytes)
-            self.main_log.info('Server message: %s', string)
+            self.logger.info('Server message: %s', string)
         except socket.error:
-            self.main_log.debug('Socket error. Message failed :: %s', string)
-
+            self.logger.debug('Socket error. Message failed :: %s', string)
+        
 
     def pass_msg(self, password):
         msg = "PASS {}".format(password)
@@ -292,25 +263,19 @@ class IRC_Client:
         self.socket.send(msg)
 
 
-    def join_msg(self, channels, keys=[]):
-        channels = ','.join(filter(None, channels))
-        keys = ','.join(filter(None, keys))
+    def join(self, channels):
+        if isinstance(channels, str):
+            channels = [channels]
 
-        msg = "JOIN {} {}".format(channels, keys)
+        channels = ','.join(filter(None, channels))
+        msg = "JOIN {}".format(channels)
         self.send_msg(msg)
 
 
-    def part_msg(self, channels):
-        self.joined_channels = list(
-            set(self.joined_channels) - set(channels))
+    def part(self, channels):
         channels = ','.join(filter(None, channels))
 
         msg = "PART {}".format(channels)
-        self.send_msg(msg)
-
-
-    def leave_all_channels(self):
-        msg = "JOIN 0"
         self.send_msg(msg)
 
 
@@ -319,8 +284,20 @@ class IRC_Client:
         self.send_msg(msg)
 
 
-    def pong_msg(self, target):
+    def pong(self, target):
         msg = "PONG :{}".format(target)
+        self.send_msg(msg)
+
+    def prvt(self, target, message):
+        msg = "PRIVMSG {} :{}".format(target, message)
+        self.send_msg(msg)
+    
+    def ctcp(self, target, message):
+        msg = "PRIVMSG {} :\001{}\001".format(target, message)
+        self.send_msg(msg)
+
+    def leave_all_channels(self):
+        msg = "JOIN 0"
         self.send_msg(msg)
 
 
@@ -330,14 +307,5 @@ class IRC_Client:
             match = regexp.search(string).group
             return match
         except AttributeError:
-            self.main_log.debug("Pattern match failed for ::%s", string)
+            self.logger.debug("Pattern match failed for ::%s %s", pattern, string)
             return None
-
-
-    def is_connected(self):
-        # Return true if socket is connected...
-        return self.connected
-
-
-    def remove_duplicates(self, l):
-        return list(set(l))
