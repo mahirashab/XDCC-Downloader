@@ -13,52 +13,43 @@ from scripts.bot.exceptions import *
 from threading import Thread, Lock
 from puffotter.print import pprint
 from colorama import Fore, Back, Style
+from scripts.bot.server_connection import ServerConnection
 from more_itertools import consume, repeatfunc
 from puffotter.units import human_readable_bytes
-from scripts.bot.client import IRC_Client, Event, Source, Argument, Connect_Factory
+from scripts.bot.client import IRC_Client, Event, Source, Argument
 
 
 
 class XDCC_Downloader(IRC_Client):
 
-    logger = logging.getLogger("mainlogger")
-
-    def __init__(self, user, pack):
-        super().__init__()
+    def __init__(self, server_connection, user, pack):
+        super().__init__(server_connection, user)
         
-        self.user = user
         self.pack = pack
-        
-        self.server = pack.server
-        self.port = 6667
-        self.addr = (self.server, self.port)
-        
-        self.channels = set([])
-        self.nickname = user.nick
-        self.username = user.user
-        self.realname = user.real
-        self.fallback_channel = pack.channel
+        self.fallback_channel = pack.fallback_channel
         
         self.downloading = False
         self.progress = 0
-        self.progress_bar = None
 
-        self.xdcc_file = None
 
         self.struct_format = b"!I"
         self.ack_lock = Lock()
 
-        self.socket = None
-        self.xdcc_socket = None
-
-        self.BUFFER_SIZE = 2048
+        self.xdcc_file = None
         self.FILE_MODE = 'wb'
+        self.BUFFER_SIZE = 2048
+        self.xdcc_connection = None
 
         self.process_printing_thread = Thread(target=self.progress_printer, daemon=True)
+        self.message_printing_thread = Thread(target=self.message_printer, daemon=True)
+        
         self.chunk_time_stamps = []
 
         self.file_requested = False
         self.file_req_reply = False
+
+        self.last_set = time.time()
+        self.iter_count = 0
 
         self.add_event_handler('welcome', self.on_welcome)
         self.add_event_handler('privmsg', self.on_prvt)
@@ -70,48 +61,40 @@ class XDCC_Downloader(IRC_Client):
         self.add_event_handler('xdcc_disconnect', self.on_xdcc_disconnect)
 
 
+    def times_in_sec(self):
+        if int(time.time() - self.last_set) > 1:
+            print(self.iter_count, " times in one sec...")
+            self.iter_count = 0
+        else:
+            self.iter_count += 1
+
+
     def connect(self):
-        try:
-            self.socket = self.connect_factory(self.addr)
-            colored_print('[+] Connected to server..', Fore.WHITE, Back.GREEN)
-        except socket.error:
-            if not self.reconn_tries >= self.max_reconn_tries:
-                self.reconn_tries += 1
-                
-                time.sleep(3)
-                self.connect()
-            else:
-                raise ConnectionFailure()
+        self.server_connection.create_pipe()
+        self.display_message = '[+] Connected to server..'
+        # colored_print('[+] Connected to server..', Fore.WHITE, Back.GREEN)
+
 
 
     def process_once(self, timeout=None):
-        sockets = self.connections
-        readable, _, _ = select.select(sockets, [], sockets, timeout)
+        conns = self.connections
 
-        if readable:
+        if conns:
+            readable, _, _ = select.select(conns, [], conns, timeout)
+        
             for sock in readable:
-                if sock == self.xdcc_socket:
+                if sock == self.xdcc_connection:
                     try:
-                        data = self.xdcc_socket.recv(self.BUFFER_SIZE)
+                        data = self.xdcc_connection.recv()
                         self.write_dcc_data(data)
                     except socket.error:
                         event = Event('xdcc_disconnect', _, _)
-                        self._handle_event(event)
-                        
-                if sock == self.socket:
+                        self._handle_event(event)   
+                elif sock == self.server_connection:
                     self.recv_data()
         else:
-            time.sleep(timeout)
-
-
-    def on_xdcc_disconnect(self, _):
-        if self.xdcc_file is not None:
-            self.xdcc_file.close()
-
-        if self.progress < self.pack.size:
-            raise DownloadIncomplete()
-        else:
-            raise DownloadComplete()
+            pass
+            # time.sleep(timeout)
 
 
     def start(self, timeout=0.2):
@@ -124,6 +107,7 @@ class XDCC_Downloader(IRC_Client):
     def download(self):
 
         retry = False
+        error = False
         pause = 0
         message = ''
         
@@ -134,14 +118,20 @@ class XDCC_Downloader(IRC_Client):
             self.register_user()
 
             self.process_printing_thread.start()
+            self.message_printing_thread.start()
 
             self.start()
         except ConnectionFailure:
+            error = True
             message = "Failed to connect to server.."
 
         except NoReply:
             message = "Bot didn't send any reply"
         
+        except NoSuchNick:
+            error = True
+            message = "No bot or user has the given nickname {}..".format(self.pack.bot)
+
         except DownloadComplete:
             message = "Download completed successfully.."
             if self.xdcc_file is not None:
@@ -149,26 +139,46 @@ class XDCC_Downloader(IRC_Client):
         
         except AlreadyDownloaded:
             message = "File already downloaded.."
+
+        finally:
+            self.close()
         
-        
-        colored_print(message, Fore.GREEN)
+        if error:
+            colored_print(message + '\n', Back.LIGHTYELLOW_EX, Fore.LIGHTRED_EX)
+        else:
+            colored_print(message + '\n', Back.LIGHTGREEN_EX, Fore.BLACK)
+
         time.sleep(pause)
 
         if not retry:
             sys.exit(0)
 
+    
+    def close(self):
+        if self.server_connection:
+            self.leave_irc_server()
+            self.server_connection.close_pipe()
+        
+        if self.xdcc_connection:
+            self.xdcc_connection.close_pipe()
+        
+        if self.xdcc_file:
+            self.xdcc_file.close()
+        
+
+        self.downloading = False
+        self.connected = False
+        self.display_message = ''
+
         
     
     def on_welcome(self, event):
-        colored_print('[+] User registered successfully...', Fore.WHITE, Back.GREEN)
+        self.display_message = '[+] User registered successfully..'
+        # colored_print('[+] User registered successfully...', Fore.WHITE, Back.GREEN)
 
         self.whois(self.pack.bot)
         self.pong(self.real_server)
         self.join(self.fallback_channel)
-
-    
-    def on_notice(self, event):
-        self.logger.debug("Notice from %s :: %s", event.source.sender, event.argument.message)
         
     
     def on_whoischannels(self, event):
@@ -186,7 +196,18 @@ class XDCC_Downloader(IRC_Client):
         
         if len(self.joined_channels) >= len(self.channels) and not self.file_requested:
             self.request_package()
+        
+    
+    def on_xdcc_disconnect(self, _):
+        print("xdcc_disconnect")
+        self.xdcc_connection = None
+        if self.xdcc_file is not None:
+            self.xdcc_file.close()
 
+        if self.progress < self.pack.size:
+            raise DownloadIncomplete()
+        else:
+            raise DownloadComplete()
     
 
     def write_dcc_data(self, data):
@@ -220,9 +241,9 @@ class XDCC_Downloader(IRC_Client):
         def acker():
             self.ack_lock.acquire()
             try:
-                self.xdcc_socket.send(payload)
+                self.xdcc_connection.send(payload)
             except socket.error:
-                print(self.xdcc_socket)
+                print(self.xdcc_connection)
                 print('[+] arker timeout...')
             finally:
                 self.ack_lock.release()
@@ -247,7 +268,7 @@ class XDCC_Downloader(IRC_Client):
                 self.pack.set_info(file_name, ip, port, size)
                 
                 if self.pack.file_exists(file_name):
-                    if self.pack.current_size >= self.pack.size:
+                    if self.pack.current_size() >= self.pack.size:
                         raise AlreadyDownloaded()
                     else:
                         resume_req = self.pack.get_resume_req()
@@ -261,31 +282,41 @@ class XDCC_Downloader(IRC_Client):
                 
                 self.progress = int(offset)
                 self.start_download(resume=True)
-                
-        
+                   
                 
     def start_download(self, resume=False):
         if resume:
             self.FILE_MODE = 'ab'
-
         self.downloading = True
 
         try:
-            addr = (self.pack.get_ip(), self.pack.get_port())
-            self.xdcc_socket = Connect_Factory()(addr)
-            self.xdcc_socket.settimeout(5)
+            self.xdcc_connection = ServerConnection(self.pack.get_ip(), 
+                                                    None,
+                                                    self.BUFFER_SIZE,
+                                                    port=self.pack.get_port())
+
+            self.xdcc_connection.create_pipe()
 
             self.xdcc_file = open(self.pack.get_file_name(), self.FILE_MODE)
         except socket.error:
-            raise XDCCSocketError()   
+            raise XDCCSocketError()  
 
-    
-    def request_package(self):
-        colored_print('[+] Requested the package..', Fore.WHITE, Back.GREEN)
 
-        self.file_requested = True
-        message = self.pack.get_package_req()
-        self.prvt(self.pack.bot, message)
+    def message_printer(self):
+        previous_message = ''
+        while not self.display_message:
+            pass
+
+        printing = self.display_message and not self.downloading
+        while printing:
+            printing = self.display_message and not self.downloading
+
+            pprint(' '*len(previous_message), end="\r", bg="black")
+            pprint(' '+self.display_message, end='\r', bg='lgreen', fg='black')
+
+            previous_message = self.display_message
+            time.sleep(0.1)
+
 
 
     def progress_printer(self):
@@ -331,8 +362,16 @@ class XDCC_Downloader(IRC_Client):
         self.logger.info('printer exitted')
 
 
+    def request_package(self):
+        self.display_message = '[+] Requested the package..'
+        # colored_print('[+] Requested the package..', Fore.WHITE, Back.GREEN)
+
+        self.file_requested = True
+        message = self.pack.get_package_req()
+        self.prvt(self.pack.bot, message)
+
     @property
     def connections(self):
         return [conn 
-                for conn in [self.socket, self.xdcc_socket] 
-                if conn is not None]
+                for conn in [self.server_connection, self.xdcc_connection] 
+                if conn and conn.is_connected()]

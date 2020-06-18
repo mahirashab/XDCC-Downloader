@@ -1,9 +1,8 @@
 
 import os
-import sys
-import os.path as path
-from PyInquirer import style_from_dict, Token, prompt
+from scripts.bot.pack import Pack
 from PyInquirer import Validator, ValidationError
+from PyInquirer import style_from_dict, Token, prompt
 
 
 style = style_from_dict({
@@ -11,7 +10,7 @@ style = style_from_dict({
     Token.Selected: '#673AB7 bold',
     Token.Instruction: '',  # default
     Token.Answer: '#2196f3 bold',
-    Token.Question: '',
+    Token.Question: '#34d1b2 bold',
 })
 
 
@@ -50,35 +49,21 @@ def download_prompt():
             'type': 'input',
             'name': 'file_path',
             'message': 'File output folder?',
-            'default': './'
+            'default': os.getcwd()
         }
     ]
 
     answers = prompt(questions, style=style)
 
     server = answers['server']
+    message = answers['message']
+    file_path = answers['file_path']
 
     channel = answers['channel']
     if not channel.startswith('#'):
         channel = '#' + channel
 
-    message_parts = answers['message'].split()
-    if len(message_parts) == 5:
-        bot = message_parts[1]
-        package = message_parts[4]
-    else:
-        print('Invalid message..')
-        sys.exit()
-
-    file_path = answers['file_path']
-    if file_path:
-        if not path.isabs(file_path):
-            file_path = path.abspath(file_path)
-
-        file_path = path.expanduser(file_path)
-        if not path.exists(file_path):
-            os.makedirs(file_path)
-
+    pack = Pack.from_message(channel, message, file_path=file_path)
     
-    return (server, channel, bot, package, file_path)
+    return (server, pack)
     

@@ -1,16 +1,17 @@
 
 import os
+import sys
+import os.path as path
 
 class Pack:
     
-    def __init__(self, server, channel, bot, package, file_path=None):
+    def __init__(self, channel, bot, package, file_path=os.getcwd()):
 
         self.bot = bot
-        self.server = server
-        self.channel = channel
         self.package = package
+        self.fallback_channel = channel
         
-        self.file_path = file_path
+        self.file_path = self._prepare_file_path(file_path)
         self.file_name = None 
         self.ip = None 
         self.port = None 
@@ -23,13 +24,11 @@ class Pack:
     def get_resume_req(self):
         return "DCC RESUME {} {} {}".format(self.file_name, 
                                                 self.port, 
-                                                self.current_size)
+                                                self.current_size())
     
     def file_exists(self, file_name):
-        if self.file_path:
-            return os.path.join(self.file_path, self.file_name)
-        else:
-            return os.path.exists(file_name)
+        file_path = os.path.join(self.file_path, self.file_name)
+        return os.path.exists(file_path)
     
 
     def set_info(self, file_name, ip, port, size):
@@ -63,14 +62,50 @@ class Pack:
     def get_size(self):
         return int(self.size)
 
-    @property
+
+
+    def _prepare_file_path(self, file_path):
+        if not path.isabs(file_path):
+            file_path = path.abspath(file_path)
+
+        file_path = path.expanduser(file_path)
+        if not path.isdir(file_path):
+            file_path = path.abspath(path.join(file_path, os.pardir))
+
+        if not path.exists(file_path):
+            os.makedirs(file_path)
+        
+        return file_path
+             
+
     def current_size(self):
         if not self.file_name:
             return None
         
-        if self.file_path:
-            joined_path = os.path.join(self.file_path, self.file_name)
-            return os.path.getsize(joined_path)
-        else:
-            return os.path.getsize(self.file_name)
+        try:
+            joined_path = path.join(self.file_path, self.file_name)
+            return path.getsize(joined_path)
+        except FileNotFoundError:
+            return 0
+        
+    
+
+
+    @classmethod
+    def from_message(cls,channel, message, file_path='./'):
+
+        message_parts = message.split()
+        if not len(message_parts) == 5:
+            print('Invalid message..')
+            sys.exit()
+
+        bot = message_parts[1]
+        package = message_parts[4]
+
+        return cls(channel, bot, package, file_path=file_path)
+
+
+            
+    
+
     

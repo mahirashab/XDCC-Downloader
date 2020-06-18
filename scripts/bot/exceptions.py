@@ -17,3 +17,6 @@ class AlreadyDownloaded(Exception):
 
 class XDCCSocketError(Exception):
     pass
+
+class NoSuchNick(Exception):
+    pass
