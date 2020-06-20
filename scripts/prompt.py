@@ -59,11 +59,13 @@ def download_prompt():
     message = answers['message']
     file_path = answers['file_path']
 
-    channel = answers['channel']
-    if not channel.startswith('#'):
-        channel = '#' + channel
+    channels = answers['channel'].replace(' ', ',')
+    channels = list(filter(None, channels.split(',')))
 
-    pack = Pack.from_message(channel, message, file_path=file_path)
+    channels = ['#'+channel 
+                if not channel.startswith('#') 
+                else channel
+                for channel in channels] 
     
-    return (server, pack)
+    return (server, channels, message, file_path)
     

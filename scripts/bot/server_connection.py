@@ -7,7 +7,7 @@ class ServerConnection:
     sock = None
     ip_type = socket.AF_INET
 
-    max_retries = 3
+    max_retries = 2
     current_retries = 1
 
     def __init__(self, server, CODEC, BUFFER_SIZE, port=6667, bind_address=None, ipv6=False):
@@ -45,7 +45,6 @@ class ServerConnection:
             self.sock.close()
             self.sock = None
 
-
     
     def recv(self):
         try:
@@ -60,33 +59,34 @@ class ServerConnection:
 
 
     def send(self, data):
-        try:
-            if self.CODEC:
-                data = data.encode(self.CODEC)
+        if not self.sock:
+            return
 
-            self.sock.sendall(data)
-        except socket.error:
-            print('Server message failed ', data)
-            self.sock = None
-
+        if self.CODEC:
+            data = data.encode(self.CODEC)
+        self.sock.sendall(data)
 
     def set_blocking(self, flag):
         if self.sock:
             self.sock.setblocking(flag)
-
     
     def set_codec(self, CODEC):
         self.CODEC = CODEC
 
-
     def set_buffer_size(self, BUFFER_SIZE):
         self.BUFFER_SIZE = BUFFER_SIZE
-
 
     def fileno(self):
         if self.sock:
             return self.sock.fileno()
 
-
     def is_connected(self):
         return True if self.sock else False
+    
+    def reset(self):
+        self.close_pipe()
+        self.current_retries = 0
+
+    
+
+        

@@ -5,11 +5,10 @@ import os.path as path
 
 class Pack:
     
-    def __init__(self, channel, bot, package, file_path=os.getcwd()):
-
+    def __init__(self, channels, bot, package, file_path=os.getcwd()):
         self.bot = bot
         self.package = package
-        self.fallback_channel = channel
+        self.fallback_channels = channels
         
         self.file_path = self._prepare_file_path(file_path)
         self.file_name = None 
@@ -63,6 +62,12 @@ class Pack:
         return int(self.size)
 
 
+    def reset(self):
+        self.file_name = None 
+        self.ip = None 
+        self.port = None 
+        self.size = 0 
+
 
     def _prepare_file_path(self, file_path):
         if not path.isabs(file_path):
@@ -87,13 +92,10 @@ class Pack:
             return path.getsize(joined_path)
         except FileNotFoundError:
             return 0
-        
-    
 
 
     @classmethod
-    def from_message(cls,channel, message, file_path='./'):
-
+    def from_message(cls,channels, message, file_path='./'):
         message_parts = message.split()
         if not len(message_parts) == 5:
             print('Invalid message..')
@@ -102,10 +104,4 @@ class Pack:
         bot = message_parts[1]
         package = message_parts[4]
 
-        return cls(channel, bot, package, file_path=file_path)
-
-
-            
-    
-
-    
+        return cls(channels, bot, package, file_path=file_path)

@@ -5,83 +5,9 @@ import socket
 import logging
 import scripts.bot.events as events
 from scripts.bot.exceptions import ConnectionFailure, NoSuchNick
-
-
-class Buffer:
-
-    def __init__(self):
-        self.buffer = ''
-        self.stored = []
-        self.seperator = '\r\n'
-    
-    def feed(self, data):
-        splitted = data.split(self.seperator)
-        splitted[0] = self.buffer + splitted[0]
-        self.buffer = splitted[-1]
-
-        self.stored += splitted[:-1]   
-
-    def __iter__(self):
-        lines, self.stored = self.stored, []
-        return iter(lines)
-
-
-
-class Source(str): 
-            
-    @property
-    def sender(self):
-        return self.split('!')[0]
-    
-    def __repr__(self):
-        return "< Source sender:%s >" % (self.sender)
-
-    def __str__(self):
-        return "< Source sender:%s >" % (self.sender)
-
-
-class Argument(str):
-
-    @property
-    def data(self):
-        if isinstance(self, bytes):
-            return self
-        else:
-            None
-    
-    @property
-    def receiver(self):
-        temp = self.split(':')[0].split(' ')
-        temp = filter(lambda x: x, temp)
-        return list(temp)[0]
-        
-    
-    @property
-    def message(self):
-        return self.split(':')[1]
-    
-    @property
-    def channels(self):
-        channels = re.findall(r'(?P<channel>#[^ ]+)', self)
-        return [channel.lower() for channel in channels]
-    
-    def __repr__(self):
-        return "< Argument receiver:%s channels:%s message:%s>" % (self.receiver, self.channels, self.message)
-
-    def __str__(self):
-        return "< Argument receiver:%s channels:%s message:%s>" % (self.receiver, self.channels, self.message)
-
-class Event:
-    
-    def __init__(self, type, source, argument):
-        self.type = type
-        self.source = source
-        self.argument = argument
-
-
+from scripts.bot.utilities import Buffer, Event, Source, Argument
 
 class IRC_Client:
-
     handlers = {}
     display_message = ''
     replies_buffer = Buffer()
@@ -90,7 +16,6 @@ class IRC_Client:
     messages = logging.getLogger("messagelogger")
 
     irc_rfc_regexp = "^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?""(?P<command>[^ ]+)( *(?P<argument> .+))?"
-
 
     def __init__(self, server_connection, user, channels=['#zw-chat', '#mg-chat']):
         # Client info
@@ -107,7 +32,6 @@ class IRC_Client:
         self.joined_channels = set([])
         self.real_server = None
         self.connected = False
-        
 
         self.add_event_handler('ping', self.on_ping)
         self.add_event_handler('part', self.on_part)
@@ -144,7 +68,7 @@ class IRC_Client:
                 self.process_replies(reply)
         
 
-
+    # @timeit
     def process_replies(self, response):
         # This processes each reply and handles the counter message...
         self.messages.info(response)
@@ -194,9 +118,12 @@ class IRC_Client:
 
     def send_msg(self, string):
         # Sends a string to the server...
-        msg = string + '\r\n'
-        self.server_connection.send(msg)
-        self.logger.info('Server message: %s', string)   
+        try:
+            msg = string + '\r\n'
+            self.server_connection.send(msg)
+            self.logger.info('Server message: %s', string)   
+        except socket.error:
+            self.logger.debug("Server message failed ::%s", string)
 
     def pass_msg(self, password):
         msg = "PASS {}".format(password)

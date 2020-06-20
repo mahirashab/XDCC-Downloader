@@ -1,5 +1,4 @@
 
-
 class NoReply(Exception):
     pass
 
@@ -19,4 +18,10 @@ class XDCCSocketError(Exception):
     pass
 
 class NoSuchNick(Exception):
+    pass
+
+class AckerError(Exception):
+    pass
+
+class TooManyRetries(Exception):
     pass
