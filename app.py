@@ -1,4 +1,3 @@
-
 from scripts.irc import IRC
 from scripts.logger import setup_logger
 from scripts.prompt import download_prompt

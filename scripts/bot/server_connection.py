@@ -1,4 +1,3 @@
-
 import time
 import socket
 from scripts.bot.exceptions import ConnectionFailure
@@ -52,7 +51,6 @@ class ServerConnection:
                 chunk = self.sock.recv(self.BUFFER_SIZE).decode(self.CODEC)
             else:
                 chunk = self.sock.recv(self.BUFFER_SIZE)
-
             return chunk
         except UnicodeDecodeError:
             pass
@@ -82,11 +80,3 @@ class ServerConnection:
 
     def is_connected(self):
         return True if self.sock else False
-    
-    def reset(self):
-        self.close_pipe()
-        self.current_retries = 0
-
-    
-
-        

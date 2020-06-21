@@ -1,4 +1,3 @@
-
 import sys
 from scripts.bot.pack import Pack
 from scripts.bot.user import User
@@ -12,17 +11,14 @@ class IRC:
 
     
     def begin_process(self):
-        try:
-            for xdcc_bot in self.xdcc_bots:
-                xdcc_bot.download()
-        except KeyboardInterrupt:
-            print("Exitting script..")
-            sys.exit(0)
+        for xdcc_bot in self.xdcc_bots:
+            xdcc_bot.download()
 
 
     @classmethod
     def from_prompt(cls, server, channel, message, file_path):
-        pack = Pack.from_message(channel, message, file_path=file_path)
-        xdcc_bot = XDCC_Downloader(ServerConnection(server, 'utf-8', 512), User(), pack)
+        packs = Pack.from_message(channel, message, file_path=file_path)
+        xdcc_bots = [XDCC_Downloader(ServerConnection(server, 'utf-8', 512), pack, User())
+                    for pack in packs]   
 
-        return cls([xdcc_bot])
+        return cls(xdcc_bots)

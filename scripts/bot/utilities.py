@@ -1,5 +1,3 @@
-
-
 import re
 import time
 import logging
@@ -47,6 +45,14 @@ class Buffer:
         return iter(lines)
 
 
+class Event:
+    def __init__(self, type, source, argument):
+        self.type = type
+        self.source = source
+        self.argument = argument
+
+
+
 class Source(str):      
     @property
     def sender(self):
@@ -80,10 +86,3 @@ class Argument(str):
 
     def __str__(self):
         return "< Argument receiver:%s channels:%s message:%s>" % (self.receiver, self.channels, self.message)
-
-
-class Event:
-    def __init__(self, type, source, argument):
-        self.type = type
-        self.source = source
-        self.argument = argument

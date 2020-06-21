@@ -1,4 +1,3 @@
-
 import names
 
 class User:
@@ -29,8 +28,3 @@ class User:
     def new_nick(self):
         self.nick = self.generate_new_nick()
         return self.nick
-
-    def reset(self):
-        self.nick = self.generate_new_nick()
-        self.user = self.generate_new_user()
-        self.real = names.get_full_name()

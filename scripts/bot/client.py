@@ -1,4 +1,3 @@
-
 import re
 import time
 import socket
@@ -8,7 +7,7 @@ from scripts.bot.exceptions import ConnectionFailure, NoSuchNick
 from scripts.bot.utilities import Buffer, Event, Source, Argument
 
 class IRC_Client:
-    handlers = {}
+    runloop = True
     display_message = ''
     replies_buffer = Buffer()
 
@@ -17,7 +16,7 @@ class IRC_Client:
 
     irc_rfc_regexp = "^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?""(?P<command>[^ ]+)( *(?P<argument> .+))?"
 
-    def __init__(self, server_connection, user, channels=['#zw-chat', '#mg-chat']):
+    def __init__(self, server_connection, user, channels=[]):
         # Client info
         self.user = user
         self.nickname = user.nick
@@ -33,6 +32,7 @@ class IRC_Client:
         self.real_server = None
         self.connected = False
 
+        self.handlers = {}
         self.add_event_handler('ping', self.on_ping)
         self.add_event_handler('part', self.on_part)
         self.add_event_handler('nosuchnick', self.on_nosuchnick)
@@ -40,7 +40,6 @@ class IRC_Client:
 
 
     def register_user(self):
-        # Registers the user...
         self.logger.info(
                 "Registering user as (nick=%s) (user=%s)", 
                             self.nickname, 
@@ -60,7 +59,6 @@ class IRC_Client:
 
 
     def recv_data(self):
-        # Receives response and processess them...
         res_data = self.server_connection.recv()
         if res_data:
             self.replies_buffer.feed(res_data)
@@ -68,7 +66,6 @@ class IRC_Client:
                 self.process_replies(reply)
         
 
-    # @timeit
     def process_replies(self, response):
         # This processes each reply and handles the counter message...
         self.messages.info(response)
@@ -114,7 +111,6 @@ class IRC_Client:
     def on_notice(self, event):
         self.logger.debug("Notice from %s :: %s", event.source.sender, event.argument.message)
         
-
 
     def send_msg(self, string):
         # Sends a string to the server...
