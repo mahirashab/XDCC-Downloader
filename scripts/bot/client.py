@@ -8,7 +8,6 @@ from scripts.bot.utilities import Buffer, Event, Source, Argument
 
 class IRC_Client:
     runloop = True
-    display_message = ''
     replies_buffer = Buffer()
 
     logger = logging.getLogger("mainlogger")
@@ -16,13 +15,13 @@ class IRC_Client:
 
     irc_rfc_regexp = "^(@(?P<tags>[^ ]*) )?(:(?P<prefix>[^ ]+) +)?""(?P<command>[^ ]+)( *(?P<argument> .+))?"
 
-    def __init__(self, server_connection, user, channels=[]):
+    def __init__(self, server_connection, user, channels=['#mg-chat']):
         # Client info
         self.user = user
         self.nickname = user.nick
         self.username = user.user
         self.realname = user.real
-        self.channels = set(channels)
+        self.channels = set([c.lower() for c in channels])
 
         # Server
         self.server_connection = server_connection

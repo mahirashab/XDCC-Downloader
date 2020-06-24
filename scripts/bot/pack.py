@@ -1,7 +1,15 @@
 import os
+import struct
+import socket
+import random
 import os.path as path
 
 class Pack:
+    file_name = None 
+    ip = None 
+    port = None 
+    size = 0 
+    token = ''
     
     def __init__(self, channels, bot, package, file_path=os.getcwd()):
         self.bot = bot
@@ -9,66 +17,78 @@ class Pack:
         self.fallback_channels = channels
         
         self.file_path = self._prepare_file_path(file_path)
-        self.file_name = None 
-        self.ip = None 
-        self.port = None 
-        self.size = 0 
     
         
     def get_package_req(self):
         return "xdcc send {}".format(self.package)
     
+    def get_reversed_dcc_accept_msg(self):
+
+        return "DCC SEND {} {} {} {} {}".format(self._formatted_filename(), 
+                                                self.ip,
+                                                self.port,
+                                                self.size,
+                                                self.token)
 
     def get_resume_req(self):
-        return "DCC RESUME {} {} {}".format(self.file_name, 
+        return "DCC RESUME {} {} {}".format(self._formatted_filename(), 
                                                 self.port, 
                                                 self.current_size())
+
+    def get_reversed_dcc_resume_req(self):
+        return "DCC RESUME {} 0 {} {}".format(self._formatted_filename(),
+                                            self.size,
+                                            self.token)
+    
     
 
-    def file_exists(self, file_name):
-        file_path = os.path.join(self.file_path, self.file_name)
-        return os.path.exists(file_path)
-    
-
-    def set_info(self, file_name, ip, port, size):
+    def set_info(self, file_name, ip, port, size, token):
+        if port == 0:
+            ip = '' # Your LOCAL IP. STILL HAS PROBLEMS.
+            packedIP = socket.inet_aton(ip)
+            self.ip = struct.unpack("!L", packedIP)[0]
+            self.port = random.randint(10000, 50000)
+        else:
+            self.ip = ip
+            self.port = port 
+        
+        self.size = size
+        self.token = token
         self.file_name = file_name
-        self.ip = ip
-        self.port = int(port)
-        self.size = int(size)
 
+    
+    def file_exists(self, file_name):
+        file_path = os.path.join(self.file_path, file_name)
+        return os.path.exists(file_path)
 
     def set_filename(self, file_name):
         self.file_name = file_name
-
-    def get_file_name(self):
-        return self.file_name
     
+    def _formatted_filename(self):
+        file_name = self.file_name
+        if ' ' in file_name:
+            file_name = '"' + self.file_name + '"'
+        return file_name
+
+    def get_file_path(self):
+        return path.join(self.file_path, self.file_name)
+    
+
     def set_ip(self, ip):
         self.ip = ip
     
-    def get_ip(self):
-        return self.ip
-        
     def set_port(self, port):
         self.port = int(port)
-
-    def get_port(self):
-        return int(self.port)
-
+    
     def set_size(self, size):
         self.size = int(size)
     
-    def get_size(self):
-        return int(self.size)
-
 
     def _prepare_file_path(self, file_path):
         if not path.isabs(file_path):
             file_path = path.abspath(file_path)
 
         file_path = path.expanduser(file_path)
-        if not path.isdir(file_path):
-            file_path = path.abspath(path.join(file_path, os.pardir))
 
         if not path.exists(file_path):
             os.makedirs(file_path)

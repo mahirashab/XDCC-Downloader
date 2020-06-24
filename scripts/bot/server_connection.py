@@ -4,18 +4,20 @@ from scripts.bot.exceptions import ConnectionFailure
 
 class ServerConnection:
     sock = None
+    server = None
+    client_addr = None
     ip_type = socket.AF_INET
 
     max_retries = 2
     current_retries = 1
 
-    def __init__(self, server, CODEC, BUFFER_SIZE, port=6667, bind_address=None, ipv6=False):
-        self.bind_address = bind_address
+    def __init__(self, server, CODEC, BUFFER_SIZE, port=6667, reversed_conn=False, ipv6=False):
         if ipv6:
             self.ip_type = socket.AF_INET6
 
         self.CODEC = CODEC
         self.BUFFER_SIZE = BUFFER_SIZE
+        self.REVERSED_CONN = reversed_conn
         
         self.server = str(server)
         self.port = int(port)
@@ -23,9 +25,15 @@ class ServerConnection:
 
 
     def create_pipe(self, timeout=3):
+        if self.REVERSED_CONN:
+            self.as_server()
+        else:
+            self.as_client(timeout=timeout)
+        
+
+    def as_client(self, timeout=3):
         try:
             self.sock = socket.socket(self.ip_type, socket.SOCK_STREAM)
-            self.bind_address and self.sock.bind(self.bind_address)
             self.sock.settimeout(timeout)
             self.sock.connect(self.addr)
             self.sock.setblocking(False)
@@ -36,7 +44,20 @@ class ServerConnection:
 
             time.sleep(3)
             self.current_retries += 1
-            self.create_pipe()
+            self.as_client()
+
+    
+    def as_server(self):
+        try:
+            self.server = socket.socket(self.ip_type, socket.SOCK_STREAM)
+            self.server.bind(self.addr)
+            self.server.listen(1)
+            print("started listening")
+            self.sock, self.client_addr = self.server.accept()
+            print('Connected to client..')
+        except socket.error as err:   
+            print('reverse dcc server creation error')
+            print(err)
 
 
     def close_pipe(self):
