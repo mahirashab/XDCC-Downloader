@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # XDCC-Downloader
 
 A simple XDCC file downloader written in python. (Personal Project.)
@@ -37,8 +36,3 @@ Json files can be used to download multiple files.
     ]
 
 Press `CTRL-C` to stop the current download and `CTRL-\` to exit script.
-
-=======
-# irc-client
-A simple python IRC client.
->>>>>>> 3d5ace743e383fb39fccca14ad05f5458698787e
