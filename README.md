@@ -2,7 +2,7 @@
 
 A simple XDCC file downloader written in python. (Personal Project.)
 
-##Usage
+## Usage
 
 Uses XDCC commands to download single or multiple packages.
 
