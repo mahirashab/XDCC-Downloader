@@ -11,7 +11,6 @@ def colored_print(text, styles):
     print(style + text + Style.RESET_ALL)
 
 
-
 def timeit(func: Callable[..., Any]) -> Callable[..., Any]:
     """Times a function, usually used as decorator"""
     logger = logging.getLogger("mainlogger")
@@ -74,7 +73,7 @@ class Argument(str):
     
     @property
     def message(self):
-        return self.split(':')[1]
+        return ':'.join(self.split(':')[1:])
     
     @property
     def channels(self):

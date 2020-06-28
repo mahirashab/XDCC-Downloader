@@ -1,4 +1,5 @@
 import os
+import colorama
 from scripts.bot.pack import Pack
 from PyInquirer import Validator, ValidationError
 from PyInquirer import style_from_dict, Token, prompt
@@ -21,6 +22,52 @@ class EmptyValidator(Validator):
             raise ValidationError(
                 message="You can't leave this blank",
                 cursor_position=len(value.text))
+
+
+class FileValidator(Validator):
+    def validate(self, value):
+        file_name = value.text
+        file_path = os.path.expanduser(os.path.abspath(file_name))
+
+        if os.path.exists(file_path):
+            return True
+        else:
+            raise ValidationError(
+                message="No Such File Found.",
+                cursor_position=len(value.text))
+            
+
+
+def options_prompt():
+    questions = [
+        {
+            'type': 'list',
+            'name': 'choosen',
+            'message': 'Choose input method ::',
+            'choices': ['From Prompt (from single bot)', 'From Json file (from multiple bots)']
+        }
+    ]
+
+    answers = prompt(questions, style=style)
+    if answers['choosen'] == 'From Prompt (from single bot)':
+        return 'from_prompt'
+    else:
+        return 'from_file'
+
+
+def json_file_prompt():
+    questions = [
+        {
+            'type': 'input',
+            'name': 'file_name',
+            'message': 'Input json file path ??',
+            'default': './',
+            'validate': FileValidator
+        }
+    ]
+
+    answers = prompt(questions, style=style)
+    return answers['file_name']
 
 
 
@@ -67,4 +114,19 @@ def download_prompt():
                 for channel in channels] 
     
     return (server, channels, message, file_path)
+
+
+def print_intro():
+    logo = '''
+██╗  ██╗██████╗  ██████╗ ██████╗    ██████╗  ██████╗ ████████╗
+╚██╗██╔╝██╔══██╗██╔════╝██╔════╝    ██╔══██╗██╔═══██╗╚══██╔══╝
+ ╚███╔╝ ██║  ██║██║     ██║         ██████╔╝██║   ██║   ██║   
+ ██╔██╗ ██║  ██║██║     ██║         ██╔══██╗██║   ██║   ██║   
+██╔╝ ██╗██████╔╝╚██████╗╚██████╗    ██████╔╝╚██████╔╝   ██║   
+╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═════╝    ╚═════╝  ╚═════╝    ╚═╝   
+                                                               
+    '''
+
+    print(colorama.Fore.GREEN, logo, colorama.Style.RESET_ALL)
+
     

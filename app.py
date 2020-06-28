@@ -1,19 +1,21 @@
-from scripts.irc import IRC
+import sys
+import signal
+import scripts.prompt as prompt
 from scripts.logger import setup_logger
-from scripts.prompt import download_prompt
+from scripts.xdcc import from_file, from_prompt
 
-setup_logger()
+def process_terminator(signalNumber, frame):
+    sys.exit(0)
 
 if __name__ == '__main__':
-    # server, channels, message, file_path = download_prompt()
+    setup_logger()
+    prompt.print_intro()
+    signal.signal(signal.SIGQUIT, process_terminator)
 
-    irc = IRC.from_prompt('irc.scenep2p.net', ['#THE.SOURCE'], '/msg TS-HD|US|P|14620 xdcc send #44', './files')
-
-    # irc = IRC.from_prompt('irc.abjects.net', ['#mahirbot'], '/msg mahir xdcc send #44', './files')
-
-    # irc = IRC.from_prompt('irc.rizon.net', ['#BATCAVE'], '/msg [FutureBot]-[SC39] xdcc send #46', './')
-
-    # irc = IRC.from_prompt('irc.abjects.net', ['#MOVIEGODS'], '/msg [MG]-MISC|EU|S|CRTDMT xdcc send #52', './files')
-
-    irc.begin_process()
-
+    choosen = prompt.options_prompt()
+    if choosen == 'from_prompt':
+        server, channels, message, file_path = prompt.download_prompt()
+        from_prompt(server, channels, message, file_path)
+    else:
+        file_path = prompt.json_file_prompt()
+        from_file(file_path)

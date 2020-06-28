@@ -16,12 +16,20 @@ from scripts.bot.server_connection import ServerConnection
 
 class XDCC_Downloader(IRC_Client):
     
-    def __init__(self, server_connection, pack, user, iter_count=1):
-        if iter_count > 5:
+    def __init__(self, server_connection, pack, user, iter_num=1):
+        '''
+        Initiates XDCC_Downloader instance.
+        Each instance downloads a single file using DCC.
+        :param server_connection: ServerConnection instance.
+        :param pack: Pack instance.
+        :param user: User instance.
+        :param iter_num: Number of recursions.
+        '''
+        if iter_num > 5:
             raise TooManyRetries()
         
         super().__init__(server_connection, user)
-        self.iter_count = iter_count
+        self.iter_num = iter_num
         self.display_message = ''
         
         self.pack = pack
@@ -61,11 +69,13 @@ class XDCC_Downloader(IRC_Client):
 
 
     def connect(self):
+        '''Connects to server.'''
         self.server_connection.create_pipe()
         self.display_message = '[+] Connected to server..'
 
     
     def close(self):
+        '''Stops all threads and closes file descriptors.'''
         if self.server_connection:
             self.leave_irc_server()
             self.server_connection.close_pipe()
@@ -103,16 +113,17 @@ class XDCC_Downloader(IRC_Client):
             time.sleep(timeout)
 
 
-    def process_forever(self, timeout=0.1):
+    def process_forever(self, timeout=0.4):
         while self.runloop:
             self.process_once(timeout=timeout)
         
 
     def download(self):
         pause = 0
-        message = ''
+        message = None
         retry = False
         error = False
+        count_iter = True
         color =  Back.LIGHTGREEN_EX, Fore.BLACK
 
         try:
@@ -136,8 +147,9 @@ class XDCC_Downloader(IRC_Client):
             error = True
             message = "No bot or user has the given nickname {}..".format(self.pack.bot)
         except AckerError:
-            retry = True
             pause = 3
+            retry = True
+            count_iter = False
             self.logger.debug("Acker error")
         except XDCCSocketError:
             error = True
@@ -147,7 +159,7 @@ class XDCC_Downloader(IRC_Client):
             retry = True
             message = "Download incomplete.."
         except DownloadComplete:
-            message = "Download completed successfully.."    
+            message = "Download completed successfully.." 
         except AlreadyDownloaded:
             message = "File already downloaded.."
         except TooManyRetries:
@@ -163,13 +175,14 @@ class XDCC_Downloader(IRC_Client):
         if error:
             color = Back.LIGHTYELLOW_EX, Fore.LIGHTRED_EX
         
-        colored_print(message, color)
+        if message:
+            colored_print(message, color)
         time.sleep(pause)
 
         if retry:
-            new_instance = XDCC_Downloader.from_previous_bot(self)
+            new_instance = XDCC_Downloader.from_previous_bot(self, count_iter)
             new_instance.download()
-
+        
 
     
     def on_welcome(self, event):
@@ -234,7 +247,7 @@ class XDCC_Downloader(IRC_Client):
             try:
                 self.xdcc_connection.send(payload)
             except socket.error:
-                print(socket.errno)
+                # self.logger.debug(socket.errno.errorcode)
                 self.logger.debug('Arker failure...')
                 raise AckerError()
             finally:
@@ -243,76 +256,82 @@ class XDCC_Downloader(IRC_Client):
         
 
     def on_prvt(self, event):
-        if event.argument.receiver != self.nickname:
+        if event.argument.receiver != self.nickname and event.source.sender != self.pack.bot:
             return
         
-        message = event.argument.message
-        if 'DCC' in message:
-            self.logger.debug(message)
-            if 'SEND' in message:
-                self.file_req_reply = True
-                payload = message.strip('\001').split('SEND')[1].split()
+        try:
+            message = event.argument.message
+            if 'DCC' in message:
+                self.logger.debug(message)
+                if 'SEND' in message:
+                    self.file_req_reply = True
+                    payload = message.strip('\001').split('SEND')[1].split()
 
-                numeric_info = []
-                token = ''
-                for index, word in enumerate(reversed(payload)):
-                    if word.isnumeric():
-                        numeric_info.insert(0, int(word))
-                    else:
-                        if len(payload[:-index]) > 1:
-                            file_name = ' '.join(payload[:-index]).strip('"')
+                    numeric_info = []
+                    token = ''
+                    for index, word in enumerate(reversed(payload)):
+                        if word.isnumeric():
+                            numeric_info.insert(0, int(word))
                         else:
-                            file_name = ''.join(payload[:-index])
-                        self.logger.debug(file_name)
-                        break
-                
-                ip = numeric_info[0]
-                port = int(numeric_info[1])
-                size = int(numeric_info[2])
-                if len(numeric_info) == 4:
-                    self.reverse_dcc = True
-                    token = numeric_info[3]
+                            if len(payload[:-index]) > 1:
+                                file_name = ' '.join(payload[:-index]).strip('"')
+                            else:
+                                file_name = ''.join(payload[:-index])
+                            self.logger.debug(file_name)
+                            break
+                    
+                    ip = numeric_info[0]
+                    port = int(numeric_info[1])
+                    size = int(numeric_info[2])
+                    if len(numeric_info) == 4:
+                        self.reverse_dcc = True
+                        token = numeric_info[3]
 
-                self.pack.set_info(file_name, ip, port, size, token)
+                    self.pack.set_info(file_name, ip, port, size, token)
 
-                
-                if self.pack.file_exists(file_name):
-                    if self.pack.current_size() >= self.pack.size:
-                        raise AlreadyDownloaded()
+                    
+                    if self.pack.file_exists(file_name):
+                        if self.pack.current_size(file_name) >= self.pack.size:
+                            raise AlreadyDownloaded()
+                        
+                        if self.reverse_dcc:
+                            resume_req = self.pack.get_reversed_dcc_resume_req()
+                        else:
+                            resume_req = self.pack.get_resume_req()
+                            
+                        self.ctcp(self.pack.bot, resume_req)
+                    else:
+                        if self.reverse_dcc:
+                            ack_msg = self.pack.get_reversed_dcc_accept_msg()
+                            self.ctcp(self.pack.bot, ack_msg)
+                        
+                        self.start_download()
+                        
+                if 'ACCEPT' in message:
+                    payload = message.split('ACCEPT')[1].rstrip('\001').split()
+
+                    numeric_info = []
+                    for index, word in enumerate(reversed(payload)):
+                        if word.isnumeric():
+                            numeric_info.insert(0, int(word))
+                        else:
+                            break
                     
                     if self.reverse_dcc:
-                        resume_req = self.pack.get_reversed_dcc_resume_req()
-                    else:
-                        resume_req = self.pack.get_resume_req()
-                        
-                    self.ctcp(self.pack.bot, resume_req)
-                else:
-                    if self.reverse_dcc:
+                        self.progress = int(numeric_info[-2])
                         ack_msg = self.pack.get_reversed_dcc_accept_msg()
                         self.ctcp(self.pack.bot, ack_msg)
-                    
-                    self.start_download()
-                    
-            if 'ACCEPT' in message:
-                payload = message.split('ACCEPT')[1].rstrip('\001').split()
-
-                numeric_info = []
-                for index, word in enumerate(reversed(payload)):
-                    if word.isnumeric():
-                        numeric_info.insert(0, int(word))
                     else:
-                        break
-                
-                if self.reverse_dcc:
-                    self.progress = int(numeric_info[-2])
-                    ack_msg = self.pack.get_reversed_dcc_accept_msg()
-                    self.ctcp(self.pack.bot, ack_msg)
-                else:
-                    self.progress = int(numeric_info[-1])
+                        self.progress = int(numeric_info[-1])
 
-                self.start_download(resume=True)
-        else:
-            self.logger.debug("PRIVMSG form %s ::%s", event.source.sender, event.argument.message)
+                    self.start_download(resume=True)
+            else:
+                self.message_log.debug(
+                                "PRIVMSG form %s ::%s", 
+                                event.source.sender, 
+                                event.argument.message)
+        except IndexError:
+            pass
                    
 
     def start_download(self, resume=False):
@@ -366,7 +385,7 @@ class XDCC_Downloader(IRC_Client):
             })
 
             if len(self.chunk_time_stamps) > 0 and \
-                time.time() - self.chunk_time_stamps[0]['timestamp'] > 7:
+                time.time() - self.chunk_time_stamps[0]['timestamp'] > 5:
                 self.chunk_time_stamps.pop(0)
 
             if len(self.chunk_time_stamps) > 0:
@@ -394,7 +413,7 @@ class XDCC_Downloader(IRC_Client):
             last_printed = message
 
             time.sleep(0.1)
-
+        pprint(' '*len(last_printed), end="\r", bg="black")
         self.logger.info('Download printer exitted')
 
     
@@ -404,7 +423,7 @@ class XDCC_Downloader(IRC_Client):
         if time_delta < 60 or self.file_req_reply or not self.file_requested:
             return
 
-        if self.file_req_times > 5:
+        if self.file_req_times > 2:
             raise NoReply()
         
         self.request_package()
@@ -422,7 +441,7 @@ class XDCC_Downloader(IRC_Client):
 
 
     @classmethod
-    def from_previous_bot(cls, pre_xdcc_bot):
+    def from_previous_bot(cls, pre_xdcc_bot, count_iter):
         server_connection = ServerConnection(pre_xdcc_bot.server_connection.server,
                                             'utf-8',
                                             512)
@@ -434,8 +453,12 @@ class XDCC_Downloader(IRC_Client):
         
         user = User() 
         
+        iter_num = pre_xdcc_bot.iter_num
+        if count_iter:
+            iter_num += 1
+        
         return cls(server_connection, pack, user,
-                    iter_count=pre_xdcc_bot.iter_count+1)
+                    iter_num=iter_num)
         
 
     @property

@@ -1,8 +1,10 @@
 .vscode/
 logs/
-*.pyc
+files/
 env/
+*.pyc
 temp.*
 *.ipynb
 *.db
 *.tar
+*.json
