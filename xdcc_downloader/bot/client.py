@@ -2,13 +2,13 @@ import re
 import time
 import socket
 import logging
-import scripts.bot.events as events
+import xdcc_downloader.bot.events as events
 
-from scripts.bot.user import User
+from xdcc_downloader.bot.user import User
 from typing import Optional, Any, List, Union, Callable 
-from scripts.bot.server_connection import ServerConnection
-from scripts.bot.exceptions import ConnectionFailure, NoSuchNick
-from scripts.bot.utilities import Buffer, Event, Source, Argument
+from xdcc_downloader.bot.server_connection import ServerConnection
+from xdcc_downloader.bot.exceptions import ConnectionFailure, NoSuchNick
+from xdcc_downloader.bot.utilities import Buffer, Event, Source, Argument
 
 class IRC_Client:
     replies_buffer = Buffer()

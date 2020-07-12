@@ -2,16 +2,17 @@ import time
 import select
 import socket
 import struct
+import datetime
 from colorama import Fore, Back
-from scripts.bot.pack import Pack
-from scripts.bot.user import User
+from xdcc_downloader.bot.pack import Pack
+from xdcc_downloader.bot.user import User
 from puffotter.print import pprint
 from threading import Thread, Lock
-from scripts.bot.exceptions import *
-from scripts.bot.client import IRC_Client
+from xdcc_downloader.bot.exceptions import *
+from xdcc_downloader.bot.client import IRC_Client
 from puffotter.units import human_readable_bytes 
-from scripts.bot.utilities import Event, colored_print
-from scripts.bot.server_connection import ServerConnection
+from xdcc_downloader.bot.utilities import Event, colored_print
+from xdcc_downloader.bot.server_connection import ServerConnection
 
 
 class XDCC_Downloader(IRC_Client):
@@ -392,20 +393,28 @@ class XDCC_Downloader(IRC_Client):
                 progress_diff = self.progress - self.chunk_time_stamps[0]['progress']
                 time_diff = time.time() - self.chunk_time_stamps[0]['timestamp']
                 ratio = int(progress_diff / time_diff)
+                eta = str(datetime.timedelta(seconds=int((self.pack.size - self.progress)/ (ratio + 0.001))))
                 speed = human_readable_bytes(ratio) + "/s"
             else:
+                eta = '00:00'
                 speed = "0B/s"
   
+            file_name = self.pack.file_name
+            if len(self.pack.file_name) > 80:
+                skip_len = 35 
+                file_name = file_name[:skip_len] + '....' + file_name[len(file_name) - skip_len:]
+
             percentage = "%.2f" % (100 * (self.progress / self.pack.size))
 
-            message = " [{}]: ({}%) |{}/{}| ({})".format(
-                self.pack.file_name,
+            message = " [{}]: ({}%) |{}/{}| ({}) [{}]".format(
+                file_name,
                 percentage,
                 human_readable_bytes(
                     self.progress, remove_trailing_zeroes=False
                 ),
                 human_readable_bytes(self.pack.size),
-                speed
+                speed,
+                eta
             )
 
             pprint(' '*len(last_printed), end="\r", bg="black")

@@ -1,7 +1,10 @@
-.vscode/
-logs/
-files/
-env/
+/.vscode/
+/logs/
+/files/
+/env/
+/dist/
+/build/
+/*.egg-info
 *.pyc
 temp.*
 *.ipynb

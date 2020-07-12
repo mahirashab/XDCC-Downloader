@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+import sys
+import signal
+import xdcc_downloader.cli as cli
+from xdcc_downloader.logger import setup_logger
+
+
+if __name__ == '__main__':
+    setup_logger()
+    cli.print_intro()
+    signal.signal(signal.SIGQUIT, lambda signalNumber, frame: sys.exit(0))
+
+    choosen = cli.options_prompt()
+    if choosen == 'from_prompt':
+        server, channels, message, file_path = cli.download_prompt()
+        cli.from_prompt(server, channels, message, file_path)
+    else:
+        file_path = cli.json_file_prompt()
+        cli.from_file(file_path)
