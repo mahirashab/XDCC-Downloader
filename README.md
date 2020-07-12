@@ -36,3 +36,8 @@ Json files can be used to download multiple files.
     ]
 
 Press `CTRL-C` to stop the current download and `CTRL-\` to exit script.
+
+## Setup
+
+This project is not on PyPi. After cloning `pip install .` to install.
+After installed `xdcc-bot` command directly initiates the script.
