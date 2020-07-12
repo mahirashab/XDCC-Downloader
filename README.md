@@ -36,4 +36,3 @@ Json files can be used to download multiple files.
     ]
 
 Press `CTRL-C` to stop the current download and `CTRL-\` to exit script.
-
