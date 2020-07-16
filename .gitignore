@@ -1,5 +1,5 @@
 /.vscode/
-/logs/
+/xdcc_logs/
 /files/
 /env/
 /dist/
@@ -8,6 +8,5 @@
 *.pyc
 temp.*
 *.ipynb
-*.db
 *.tar
 *.json

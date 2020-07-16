@@ -1,6 +1,7 @@
 import time
 import socket
-from xdcc_downloader.bot.exceptions import ConnectionFailure
+
+from ..bot.exceptions import ConnectionFailure
 
 class ServerConnection:
     ip_type = socket.AF_INET

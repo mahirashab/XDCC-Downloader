@@ -1,5 +1,5 @@
-colorama==0.4.3
-names==0.3.0
-puffotter==0.9.6
-PyInquirer==1.0.3
+colorama>=0.4.3
+names>=0.3.0
+puffotter>=0.9.6
+PyInquirer>=1.0.3
 

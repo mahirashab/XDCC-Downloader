@@ -1,16 +1,16 @@
 import os
 import sys
 import json
+import signal
 import os.path
 import colorama
 from pathlib import Path
-from xdcc_downloader.bot.user import User
-from xdcc_downloader.bot.pack import Pack
-from xdcc_downloader.logger import setup_logger
-from PyInquirer import Validator, ValidationError
-from PyInquirer import style_from_dict, Token, prompt
-from xdcc_downloader.bot.xdcc_bot import XDCC_Downloader
-from xdcc_downloader.bot.server_connection import ServerConnection
+from .bot.user import User
+from .bot.pack import Pack
+from .logger import setup_logger
+from .bot.xdcc_bot import XDCC_Downloader
+from .bot.server_connection import ServerConnection
+from PyInquirer import Validator, ValidationError, style_from_dict, Token, prompt
 
 
 style = style_from_dict({
@@ -180,15 +180,29 @@ def from_file(json_file_path):
 
 def print_intro():
     logo = '''
- ██╗  ██╗██████╗  ██████╗ ██████╗  ██████╗  ██████╗ ████████╗
- ╚██╗██╔╝██╔══██╗██╔════╝██╔════╝ ██╔══██╗██╔═══██ ╚══██╔══╝
-  ╚███╔╝ ██║  ██║██║     ██║         ██████╔╝██║   ██║   ██║   
-  ██╔██╗ ██║  ██║██║     ██║         ██╔══██╗██║   ██║   ██║   
- ██╔╝ ██╗██████╔╝╚██████╗╚██████╗  ██████╔╝╚██████╔╝  ██║   
- ╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═════╝  ╚═════╝  ╚═════╝    ╚═╝   
+██╗  ██╗██████╗  ██████╗ ██████╗    ██████╗  ██████╗ ████████╗
+╚██╗██╔╝██╔══██╗██╔════╝██╔════╝    ██╔══██╗██╔═══██╗╚══██╔══╝
+ ╚███╔╝ ██║  ██║██║     ██║         ██████╔╝██║   ██║   ██║   
+ ██╔██╗ ██║  ██║██║     ██║         ██╔══██╗██║   ██║   ██║   
+██╔╝ ██╗██████╔╝╚██████╗╚██████╗    ██████╔╝╚██████╔╝   ██║   
+╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═════╝    ╚═════╝  ╚═════╝    ╚═╝   
                                                                
     '''
-
     print(colorama.Fore.GREEN, logo, colorama.Style.RESET_ALL)
 
-    
+
+def main():
+    setup_logger()
+    print_intro()
+    signal.signal(signal.SIGQUIT, lambda signalNumber, frame: sys.exit(0))
+
+    try:
+        choosen = options_prompt()
+        if choosen == 'from_prompt':
+            server, channels, message, file_path = download_prompt()
+            from_prompt(server, channels, message, file_path)
+        else:
+            file_path = json_file_prompt()
+            from_file(file_path)
+    except KeyError:
+        sys.exit()

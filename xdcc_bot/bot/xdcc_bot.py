@@ -1,18 +1,21 @@
+import sys
 import time
 import select
 import socket
 import struct
 import datetime
+
+from ..bot.pack import Pack
+from ..bot.user import User
+from ..bot.exceptions import *
+from ..bot.client import IRC_Client
+from ..bot.utilities import Event, colored_print
+from ..bot.server_connection import ServerConnection
+
 from colorama import Fore, Back
-from xdcc_downloader.bot.pack import Pack
-from xdcc_downloader.bot.user import User
 from puffotter.print import pprint
 from threading import Thread, Lock
-from xdcc_downloader.bot.exceptions import *
-from xdcc_downloader.bot.client import IRC_Client
 from puffotter.units import human_readable_bytes 
-from xdcc_downloader.bot.utilities import Event, colored_print
-from xdcc_downloader.bot.server_connection import ServerConnection
 
 
 class XDCC_Downloader(IRC_Client):
@@ -347,7 +350,15 @@ class XDCC_Downloader(IRC_Client):
                                                     reversed_conn=self.reverse_dcc)
             
             self.xdcc_connection.create_pipe()
-            self.xdcc_file = open(self.pack.get_file_path(), self.FILE_MODE)
+
+            try:
+                self.xdcc_file = open(self.pack.get_file_path(), self.FILE_MODE)
+            except PermissionError:
+                colored_print("Can't write file due to Insufficient Permission..", 
+                                (Fore.BLACK, Back.LIGHTRED_EX))
+                colored_print("Run script with write permissions..", 
+                                (Fore.BLACK, Back.LIGHTYELLOW_EX))
+                sys.exit()
 
             self.downloading = True
         except socket.error:

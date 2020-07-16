@@ -1,8 +1,10 @@
 import os
+import sys
 import struct
 import socket
 import random
 import os.path as path
+
 from typing import Union
 
 class Pack:
@@ -175,7 +177,8 @@ class Pack:
         message_parts = message.split()
         if not len(message_parts) == 5:
             print('Invalid message..')
-            return
+            sys.exit()
+            
 
         bot = message_parts[1]
         packages = message_parts[4]
