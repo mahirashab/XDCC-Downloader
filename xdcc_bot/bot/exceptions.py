@@ -1,26 +1,52 @@
+import logging
+logger = logging.getLogger("mainlogger")
+
 class NoReply(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (NoReply)")
 
 class ConnectionFailure(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (ConnectionFailure)")
 
 class DownloadIncomplete(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (DownloadIncomplete)")
 
 class DownloadComplete(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (DownloadComplete)")
 
 class AlreadyDownloaded(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (AlreadyDownloaded)")
 
 class XDCCSocketError(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (XDCCSocketError)")
 
 class NoSuchNick(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (NoSuchNick)")
 
 class AckerError(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (AckerError)")
 
 class TooManyRetries(Exception):
-    pass
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (TooManyRetries)")
+
+class ReverseXDCC(Exception):
+    def __init__(self):
+        super().__init__()
+        logger.debug("Exception occured ~| (ReverseXDCC)")

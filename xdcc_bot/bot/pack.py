@@ -59,6 +59,11 @@ class Pack:
         return "DCC RESUME {} 0 {} {}".format(self._formatted_filename(),
                                             self.size,
                                             self.token)
+    
+
+    def get_queue_remove_req(self):
+        '''Returns message to remove pack from Queue'''
+        return "XDCC REMOVE {}".format(self.package[1:])
       
 
     def set_info(self, file_name: str, 
@@ -75,14 +80,11 @@ class Pack:
         :return: None.
         '''
         if port == 0:
-            ip = '192.168.0.106' # Your LOCAL IP. STILL HAS PROBLEMS.
-            packedIP = socket.inet_aton(ip)
-            self.ip = struct.unpack("!L", packedIP)[0]
             self.port = random.randint(10000, 50000)
         else:
-            self.ip = ip
             self.port = port 
         
+        self.ip = ip
         self.size = size
         self.token = token
         self.file_name = file_name
@@ -191,6 +193,7 @@ class Pack:
             else:
                 pack_numbers.append(int(package_number))   
         pack_numbers = ['#'+str(n) for n in list(set(pack_numbers))]
+        pack_numbers.sort()
 
         return [cls(channels, bot, pack_num, file_path=file_path) 
                 for pack_num in pack_numbers]

@@ -19,7 +19,7 @@ LOGGING_CONFIG = {
     'disable_existing_loggers': True,
     'formatters': {
         'standard': {
-            'format': '-- [%(levelname)s] - [%(module)s] - ||| %(message)s'
+            'format': '[%(levelname)s] ~| %(message)s'
         },
         'message': {
             'format': '--| %(message)s'

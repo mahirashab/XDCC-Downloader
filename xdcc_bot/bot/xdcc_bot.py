@@ -48,7 +48,7 @@ class XDCC_Downloader(IRC_Client):
 
         self.FILE_MODE = 'wb'
         self.xdcc_file = None
-        self.BUFFER_SIZE = 2048
+        self.BUFFER_SIZE = 1024
         self.xdcc_connection = None
         
 
@@ -80,7 +80,10 @@ class XDCC_Downloader(IRC_Client):
     
     def close(self):
         '''Stops all threads and closes file descriptors.'''
-        if self.server_connection:
+        if self.server_connection.sock:
+            cancel_req = self.pack.get_queue_remove_req()
+            self.ctcp(self.pack.bot, cancel_req)
+
             self.leave_irc_server()
             self.server_connection.close_pipe()
         
@@ -108,8 +111,7 @@ class XDCC_Downloader(IRC_Client):
                         self.write_dcc_data(data)
                     except socket.error:
                         print(socket.errno)
-                        event = Event('xdcc_disconnect', _, _)
-                        self._handle_event(event)   
+                        self._handle_event(Event('xdcc_disconnect', _, _))   
                 elif sock == self.server_connection:
                     self.recv_data()
         else:
@@ -117,7 +119,7 @@ class XDCC_Downloader(IRC_Client):
             time.sleep(timeout)
 
 
-    def process_forever(self, timeout=0.4):
+    def process_forever(self, timeout=0.2):
         while self.runloop:
             self.process_once(timeout=timeout)
         
@@ -142,33 +144,34 @@ class XDCC_Downloader(IRC_Client):
             self.process_forever()
         except ConnectionFailure:
             retry = True
+        except TooManyRetries:
             error = True
-            message = "Failed to connect to server.."
+            message = "Failed to connect to server. Check server addr or Net connection."
         except NoReply:
             error = True
-            message = "Bot didn't send any reply.."
+            message = "Bot didn't respond.."
         except NoSuchNick:
             error = True
             message = "No bot or user has the given nickname {}..".format(self.pack.bot)
         except AckerError:
-            pause = 3
+            pause = 1.5
             retry = True
             count_iter = False
-            self.logger.debug("Acker error")
         except XDCCSocketError:
             error = True
             message = "XDCC connection reset by peer. Check logs for Cause.."
         except DownloadIncomplete:
-            pause = 3
+            pause = 1.5
             retry = True
             message = "Download incomplete.."
         except DownloadComplete:
-            message = "Download completed successfully.." 
+            message = "Downloaded ~| {} |~ successfully..".format(self.pack.file_name)
         except AlreadyDownloaded:
-            message = "File already downloaded.."
-        except TooManyRetries:
+            message = "~| {} |~ already downloaded..".format(self.pack.file_name)
+        except ReverseXDCC:
+            pause = 1.5
             error = True
-            message = "Tried too meny times. Check main log for cause of Failure.."
+            message = "Reverse XDCC is not yet supported.."
         except KeyboardInterrupt:
             error = True
             message = "Cancelled the current download.."
@@ -184,8 +187,12 @@ class XDCC_Downloader(IRC_Client):
         time.sleep(pause)
 
         if retry:
-            new_instance = XDCC_Downloader.from_previous_bot(self, count_iter)
-            new_instance.download()
+            try:
+                new_instance = XDCC_Downloader.from_previous_bot(self, count_iter)
+                new_instance.download()
+            except TooManyRetries:
+                colored_print("Connection failure. Check net connection and serveraddr..",           (Back.LIGHTYELLOW_EX, Fore.LIGHTRED_EX))
+            
         
 
     
@@ -199,7 +206,7 @@ class XDCC_Downloader(IRC_Client):
     
     def on_whoischannels(self, event):
         channels = event.argument.channels
-        self.channels.update(channels)
+        self.channels.update(list(set(channels) - set(self.fallback_channels)))
     
     
     def on_endofwhois(self, event):
@@ -211,6 +218,7 @@ class XDCC_Downloader(IRC_Client):
         self.joined_channels.update(event.argument.channels)
         
         if len(self.joined_channels) >= len(self.channels) and not self.file_requested:
+            self.ctcp(self.pack.bot, 'XDCC REMOVE')
             time.sleep(0.5)
             self.request_package()
         
@@ -227,9 +235,10 @@ class XDCC_Downloader(IRC_Client):
 
         chunk_size = len(data)
         self.progress += chunk_size
-        self._ack()
+        # self._ack() # Problemetic sometimes..
 
         if self.progress >= self.pack.size:
+            self.logger.debug("Downloaded %s", self.pack.file_name)
             raise DownloadComplete()
 
 
@@ -251,8 +260,7 @@ class XDCC_Downloader(IRC_Client):
             try:
                 self.xdcc_connection.send(payload)
             except socket.error:
-                # self.logger.debug(socket.errno.errorcode)
-                self.logger.debug('Arker failure...')
+                self.logger.debug("Arker failure...")
                 raise AckerError()
             finally:
                 self.ack_lock.release()
@@ -281,7 +289,6 @@ class XDCC_Downloader(IRC_Client):
                                 file_name = ' '.join(payload[:-index]).strip('"')
                             else:
                                 file_name = ''.join(payload[:-index])
-                            self.logger.debug(file_name)
                             break
                     
                     ip = numeric_info[0]
@@ -290,9 +297,9 @@ class XDCC_Downloader(IRC_Client):
                     if len(numeric_info) == 4:
                         self.reverse_dcc = True
                         token = numeric_info[3]
+                        raise ReverseXDCC()
 
                     self.pack.set_info(file_name, ip, port, size, token)
-
                     
                     if self.pack.file_exists(file_name):
                         if self.pack.current_size(file_name) >= self.pack.size:
@@ -361,13 +368,14 @@ class XDCC_Downloader(IRC_Client):
                 sys.exit()
 
             self.downloading = True
+            self.logger.debug("Started downloading %s", self.pack.file_name)
         except socket.error:
             raise XDCCSocketError()  
 
 
     def message_printer(self):
         while not self.display_message:
-            pass
+            time.sleep(0.2)
 
         previous_message = ''
         printing = self.display_message and not self.downloading
@@ -384,7 +392,7 @@ class XDCC_Downloader(IRC_Client):
 
     def progress_printer(self):
         while not self.downloading:
-            pass
+            time.sleep(0.2)
 
         printing = self.downloading
         last_printed = ''
@@ -443,7 +451,7 @@ class XDCC_Downloader(IRC_Client):
         if time_delta < 60 or self.file_req_reply or not self.file_requested:
             return
 
-        if self.file_req_times > 2:
+        if self.file_req_times > 4:
             raise NoReply()
         
         self.request_package()

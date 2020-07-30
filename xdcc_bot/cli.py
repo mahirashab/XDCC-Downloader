@@ -69,7 +69,7 @@ def json_file_prompt():
             'type': 'input',
             'name': 'file_name',
             'message': 'Input json file path ??',
-            'default': './',
+            'default': os.getcwd(),
             'validate': FileValidator
         }
     ]

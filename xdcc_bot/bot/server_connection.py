@@ -6,6 +6,7 @@ from ..bot.exceptions import ConnectionFailure
 class ServerConnection:
     ip_type = socket.AF_INET
 
+    sock = None
     max_retries = 2
     current_retries = 1
 
@@ -56,7 +57,7 @@ class ServerConnection:
             if self.current_retries >= self.max_retries:
                 raise ConnectionFailure()
 
-            time.sleep(3)
+            time.sleep(2)
             self.current_retries += 1
             self.as_client()
 
@@ -65,7 +66,7 @@ class ServerConnection:
         '''Creates a server and takes only one client.'''
         try:
             self.server_sock = socket.socket(self.ip_type, socket.SOCK_STREAM)
-            self.server_sock.bind(self.addr)
+            self.server_sock.bind(('', self.port))
             self.server_sock.listen(1)
             print("started listening")
             self.sock, self.client_addr = self.server_sock.accept()

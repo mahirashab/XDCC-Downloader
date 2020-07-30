@@ -22,7 +22,7 @@ class IRC_Client:
     def __init__(self, 
                 server_connection: ServerConnection, 
                 user: User, 
-                channels: Optional[list] =['#mg-chat']):
+                channels: Optional[list] =[]):
         '''
         Initiates the base class for XDCC_Downloader.
         It serves the basic irc server connunication functionalities.
@@ -128,7 +128,7 @@ class IRC_Client:
             
         event = Event(command, prefix, argument)
         self._handle_event(event)
-        # self.messages.info(response)
+        self.message_log.info(response)
         
 
     def on_part(self, event: Event):
